@@ -53,14 +53,27 @@ node scripts/jev.mjs ask --request-file examples/requests/injection-guardrail.js
 > respostas — por isso a deteção é um **sinal** (banda `hitl`/`abstain`), nunca
 > uma permissão de execução. Regras em `references/validacao.md` §Armadilhas.
 
+## Desempenho (medido, não estimado)
+
+`scripts/bench.mjs` mede antes/depois — números em `references/benchmarks.md`:
+
+| Métrica | Antes → Depois |
+|---|---|
+| Arranque da CLI | 38 ms → **26 ms** (−29%, lazy-import) |
+| Validação pesada | <1 µs/pedido (corre sempre, sem custo real) |
+| `eval` 8 casos | sequencial → paralelo: **−30…70%** |
+| Decisão quente | ~300 ms (limitada por RTT; socket reutilizado) |
+| Rajada fria 8× | h1 ~6/8 ≤430 ms vs h2 cauda ~1180 ms → **default h1** (decisão medida) |
+
 ## Estrutura
 
 ```
 SKILL.md                    camada semântica (quando/como usar)
 scripts/jev.mjs             CLI (ask/validate/batch/eval/status/selftest/serve)
+scripts/bench.mjs           benchmark (arranque/validação/rede h1 vs h2)
 scripts/lib/validate.mjs    validação de requisição/resposta + bandas
-scripts/lib/client.mjs      transporte keep-alive + retries + telemetria
-references/                 contrato, validação, latência, fontes verificadas
+scripts/lib/client.mjs      transporte keep-alive (h1 padrão, h2 opcional) + retries
+references/                 contrato, validação, latência, benchmarks, fontes verificadas
 examples/requests/          exemplos (en + pt-BR) e guardrail de injeção
 evals/evals.json            casos rotulados para calibração (accuracy + ECE)
 evals/injection-evals.json  cenários de prompt injection (limpos vs. injetados)

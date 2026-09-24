@@ -17,15 +17,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import readline from "node:readline";
-import { fileURLToPath } from "node:url";
 import {
   validateRequest, validateResponse, decideBand, DEFAULT_THRESHOLDS, LIMITS,
 } from "./lib/validate.mjs";
-import {
-  decide, checkKey, closeAgents, resolveApiKey, resolveSurface, SURFACES, DEFAULT_MODEL,
-  JevClientError,
-} from "./lib/client.mjs";
+
+// client.mjs (node:https + node:http2) e node:readline são carregados SOB DEMANDA:
+// `help` e `validate` não pagam o arranque dos módulos de rede (~5-8 ms medidos).
+const DEFAULT_MODEL = "typesafe/jev-1.13";
+const clientLib = () => import("./lib/client.mjs");
 
 const VERSION = "1.0.0";
 
@@ -135,13 +134,14 @@ async function cmdAsk(flags) {
   }
 
   let result;
+  const C = await clientLib();
   try {
-    result = await decide(req, {
+    result = await C.decide(req, {
       retries: flags.retries !== undefined ? Number(flags.retries) : undefined,
       timeoutMs: flags.timeout !== undefined ? Number(flags.timeout) * 1000 : undefined,
     });
   } catch (err) {
-    const isApi = err instanceof JevClientError;
+    const isApi = err instanceof C.JevClientError;
     if (flags.json) {
       out(JSON.stringify({ ok: false, error: { message: err.message, status: err.status ?? null, retriable: Boolean(err.retriable) } }, null, 2));
     } else {
@@ -184,7 +184,7 @@ async function cmdAsk(flags) {
     }
   }
   if (!rv.ok && flags["fail-on-response-errors"]) process.exit(2);
-  closeAgents();
+  C.closeAgents();
 }
 
 // ---------------------------------------------------------------------------
@@ -215,6 +215,7 @@ async function cmdBatch(flags) {
   const thresholds = thresholdsFrom(flags);
   const concurrency = Math.max(1, Number(flags.concurrency || 4));
   const results = new Array(items.length);
+  const C = await clientLib();
 
   let idx = 0;
   async function worker() {
@@ -227,7 +228,7 @@ async function cmdBatch(flags) {
         continue;
       }
       try {
-        const r = await decide(req, { retries: flags.retries !== undefined ? Number(flags.retries) : undefined });
+        const r = await C.decide(req, { retries: flags.retries !== undefined ? Number(flags.retries) : undefined });
         const rv = validateResponse(req, r.response, thresholds);
         results[i] = {
           index: i, ok: rv.ok,
@@ -252,7 +253,7 @@ async function cmdBatch(flags) {
     },
     results,
   }, null, 2));
-  closeAgents();
+  C.closeAgents();
 }
 
 // ---------------------------------------------------------------------------
@@ -263,47 +264,62 @@ async function cmdEval(flags) {
   const cases = readJsonFile(flags["evals-file"] || "evals/evals.json");
   if (!Array.isArray(cases)) fail("O ficheiro de evals deve ser um array de casos { name, state, questions, expected }.");
   const thresholds = thresholdsFrom(flags);
+  const concurrency = Math.max(1, Number(flags.concurrency || 4));
+  const C = await clientLib();
 
+  // Workers paralelos (socket h2 multiplexado ou h1 em pool) — eval grande deixa
+  // de ser N×latência redonda.
   const rows = [];
-  for (const c of cases) {
-    const req = { model: flags.model || process.env.JEV_MODEL || DEFAULT_MODEL, state: c.state, questions: c.questions };
-    const v = validateRequest(req);
-    if (!v.ok) { rows.push({ name: c.name, skipped: true, reason: "invalid_request", errors: v.errors }); continue; }
-    let resp;
-    try {
-      const r = await decide(req, {});
-      resp = r.response;
-    } catch (err) {
-      rows.push({ name: c.name, skipped: true, reason: err.message });
-      continue;
-    }
-    const rv = validateResponse(req, resp, thresholds);
-    for (const [qid, expected] of Object.entries(c.expected || {})) {
-      const a = resp.answers[qid];
-      if (!a) { rows.push({ name: c.name, qid, skipped: true, reason: "no_answer" }); continue; }
-      let predicted, correct, confidence;
-      if (a.type === "noul") {
-        predicted = a.noul >= 0.5;
-        correct = predicted === Boolean(expected);
-        confidence = Math.max(a.noul, 1 - a.noul);
-      } else if (a.type === "choice") {
-        predicted = a.choice;
-        correct = predicted === expected;
-        confidence = a.confidence ?? 0.5;
-      } else {
-        predicted = a.score;
-        const tol = flags.tolerance !== undefined ? Number(flags.tolerance) : 0.5;
-        correct = Math.abs(predicted - Number(expected)) <= tol;
-        confidence = a.confidence ?? 0.5;
+  let idx = 0;
+  async function worker() {
+    while (idx < cases.length) {
+      const c = cases[idx++];
+      const req = { model: flags.model || process.env.JEV_MODEL || DEFAULT_MODEL, state: c.state, questions: c.questions };
+      const v = validateRequest(req);
+      if (!v.ok) { rows.push({ name: c.name, skipped: true, reason: "invalid_request", errors: v.errors }); continue; }
+      let resp;
+      try {
+        const r = await C.decide(req, {});
+        resp = r.response;
+      } catch (err) {
+        rows.push({ name: c.name, skipped: true, reason: err.message });
+        continue;
       }
-      rows.push({ name: c.name, qid, type: a.type, expected, predicted, correct, confidence: Math.round(confidence * 1e3) / 1e3, band: rv.decisions[qid]?.band });
+      const rv = validateResponse(req, resp, thresholds);
+      for (const [qid, expected] of Object.entries(c.expected || {})) {
+        const a = resp.answers[qid];
+        if (!a) { rows.push({ name: c.name, qid, skipped: true, reason: "no_answer" }); continue; }
+        let predicted, correct, confidence;
+        if (a.type === "noul") {
+          predicted = a.noul >= 0.5;
+          correct = predicted === Boolean(expected);
+          confidence = Math.max(a.noul, 1 - a.noul);
+        } else if (a.type === "choice") {
+          predicted = a.choice;
+          correct = predicted === expected;
+          confidence = a.confidence ?? 0.5;
+        } else {
+          predicted = a.score;
+          const tol = flags.tolerance !== undefined ? Number(flags.tolerance) : 0.5;
+          correct = Math.abs(predicted - Number(expected)) <= tol;
+          confidence = a.confidence ?? 0.5;
+        }
+        rows.push({ name: c.name, qid, type: a.type, expected, predicted, correct, confidence: Math.round(confidence * 1e3) / 1e3, band: rv.decisions[qid]?.band });
+      }
     }
   }
+  await Promise.all(Array.from({ length: Math.min(concurrency, cases.length) }, worker));
+  rows.sort((a, b) => (a.name + (a.qid || "")).localeCompare(b.name + (b.qid || "")));
 
   const scored = rows.filter((r) => r.correct !== undefined);
   const n = scored.length;
   const accuracy = n ? scored.filter((r) => r.correct).length / n : null;
   const meanConf = n ? scored.reduce((a, r) => a + r.confidence, 0) / n : null;
+
+  // Distribuição por banda: que fração do tráfego é executável sem humano
+  // (a "poupança real" — ver references/validacao.md §Bandas).
+  const band_distribution = { auto: 0, hitl: 0, abstain: 0 };
+  for (const r of scored) if (r.band) band_distribution[r.band] = (band_distribution[r.band] || 0) + 1;
 
   // Expected Calibration Error (10 bins): |acc - conf| ponderado pelo tamanho do bin.
   const bins = Array.from({ length: 10 }, () => []);
@@ -325,11 +341,12 @@ async function cmdEval(flags) {
     accuracy: accuracy !== null ? round3(accuracy) : null,
     mean_confidence: meanConf !== null ? round3(meanConf) : null,
     ece: n ? round3(ece) : null,
+    band_distribution,
     calibration_bins: binReport,
     rows,
   };
   out(JSON.stringify(report, null, 2));
-  closeAgents();
+  C.closeAgents();
 }
 
 function round3(x) { return Math.round(x * 1e3) / 1e3; }
@@ -339,22 +356,24 @@ function round3(x) { return Math.round(x * 1e3) / 1e3; }
 // ---------------------------------------------------------------------------
 
 async function cmdStatus(flags) {
-  const key = resolveApiKey();
+  const C = await clientLib();
+  const key = C.resolveApiKey();
   const info = {
     key: key ? `${key.slice(0, 6)}…${key.slice(-4)} (mascarada)` : "AUSENTE",
     key_source: process.env.OPENROUTER_API_KEY ? "OPENROUTER_API_KEY" : process.env.JEV_API_KEY ? "JEV_API_KEY" : process.env.TYPESAFE_API_KEY ? "TYPESAFE_API_KEY" : null,
     surface: flags.surface || process.env.JEV_SURFACE || "decisions",
-    endpoint: flags.surface ? (SURFACES[flags.surface] || flags.surface) : resolveSurface(),
+    endpoint: flags.surface ? (C.SURFACES[flags.surface] || flags.surface) : C.resolveSurface(),
+    transport: process.env.JEV_TRANSPORT || "h1",
     model: flags.model || process.env.JEV_MODEL || DEFAULT_MODEL,
     node: process.version,
   };
   if (flags.check) {
-    info.account = await checkKey();
+    info.account = await C.checkKey();
   }
   out(JSON.stringify(info, null, 2));
   if (!key) process.exit(2);
   if (flags.check && !info.account.ok) process.exit(1);
-  closeAgents();
+  C.closeAgents();
 }
 
 // ---------------------------------------------------------------------------
@@ -382,7 +401,9 @@ function toolInputSchema() {
 }
 
 async function cmdServe(flags) {
-  process.stderr.write(`[jev-mcp] servidor MCP iniciado (stdio) · endpoint=${resolveSurface()} · modelo=${flags.model || process.env.JEV_MODEL || DEFAULT_MODEL}\n`);
+  const C = await clientLib();
+  const readline = (await import("node:readline")).default;
+  process.stderr.write(`[jev-mcp] servidor MCP iniciado (stdio) · endpoint=${C.resolveSurface()} · modelo=${flags.model || process.env.JEV_MODEL || DEFAULT_MODEL}\n`);
   const rl = readline.createInterface({ input: process.stdin, terminal: false });
 
   function send(msg) { process.stdout.write(JSON.stringify(msg) + "\n"); }
@@ -429,7 +450,7 @@ async function cmdServe(flags) {
         continue;
       }
       try {
-        const r = await decide(req, { retries: flags.retries !== undefined ? Number(flags.retries) : undefined });
+        const r = await C.decide(req, { retries: flags.retries !== undefined ? Number(flags.retries) : undefined });
         const thresholds = thresholdsFrom(flags);
         const rv = validateResponse(req, r.response, thresholds);
         send({ jsonrpc: "2.0", id, result: {
@@ -453,7 +474,7 @@ async function cmdServe(flags) {
       send({ jsonrpc: "2.0", id, error: { code: -32601, message: `Método desconhecido: ${method}` } });
     }
   }
-  closeAgents();
+  C.closeAgents();
 }
 
 // ---------------------------------------------------------------------------
@@ -463,6 +484,7 @@ async function cmdServe(flags) {
 async function cmdSelftest() {
   const cases = [];
   const check = (name, cond, detail = "") => cases.push({ name, pass: Boolean(cond), detail });
+  const C = await clientLib();
 
   // --- validação de requisição -------------------------------------------
   const good = {
@@ -571,7 +593,7 @@ async function cmdSelftest() {
     return { statusCode: 200, headers: {}, raw: JSON.stringify({ model: "typesafe/jev-1.13-20260917", answers: {}, usage: { input_tokens: 1, output_tokens: 0 } }), socketReused: true };
   };
   try {
-    const r = await decide(good, { transport: fakeRetry, apiKey: "sk-test", retries: 2 });
+    const r = await C.decide(good, { transport: fakeRetry, apiKey: "sk-test", retries: 2 });
     check("429 → retry → sucesso (attempts=2)", r.telemetry.attempts === 2, JSON.stringify(r.telemetry));
     check("socket_reused reportado", r.telemetry.socket_reused === true);
   } catch (e) {
@@ -584,7 +606,7 @@ async function cmdSelftest() {
     return { statusCode: 402, headers: {}, raw: JSON.stringify({ error: { code: 402, message: "Insufficient credits" } }), socketReused: false };
   };
   try {
-    await decide(good, { transport: fake402, apiKey: "sk-test", retries: 3 });
+    await C.decide(good, { transport: fake402, apiKey: "sk-test", retries: 3 });
     check("402 → terminal sem retries", false, "não lançou erro");
   } catch (e) {
     check("402 → terminal sem retries", e.status === 402 && calls === 1 && e.retriable === false, `${e.status}/${calls}`);
@@ -597,18 +619,93 @@ async function cmdSelftest() {
     return { statusCode: 200, headers: {}, raw: JSON.stringify({ model: "m", answers: {}, usage: { input_tokens: 1, output_tokens: 0 } }), socketReused: true };
   };
   try {
-    const r = await decide(good, { transport: fakeNet, apiKey: "sk-test", retries: 2 });
+    const r = await C.decide(good, { transport: fakeNet, apiKey: "sk-test", retries: 2 });
     check("erro de rede → retry → sucesso", r.telemetry.attempts === 2);
   } catch (e) {
     check("erro de rede → retry → sucesso", false, e.message);
   }
 
+  // Retry-After gigante não pode prender o chamador (cap em maxRetryWaitMs).
+  calls = 0;
+  const fakeHugeRA = async () => {
+    calls++;
+    if (calls === 1) return { statusCode: 429, headers: { "retry-after": "3600" }, raw: "{}", socketReused: false };
+    return { statusCode: 200, headers: {}, raw: JSON.stringify({ model: "m", answers: {}, usage: { input_tokens: 1, output_tokens: 0 } }), socketReused: true };
+  };
   try {
-    await decide(good, { transport: fakeRetry, apiKey: null, env: {} });
+    const t0 = performance.now();
+    await C.decide(good, { transport: fakeHugeRA, apiKey: "sk-test", retries: 1, maxRetryWaitMs: 100 });
+    const waited = performance.now() - t0;
+    check("Retry-After 3600s truncado pelo cap (<1s)", waited < 1000, `${Math.round(waited)}ms`);
+  } catch (e) {
+    check("Retry-After 3600s truncado pelo cap (<1s)", false, e.message);
+  }
+
+  // Fallback h2 → h1 quando o transporte h2 falha.
+  try {
+    const h2Broken = async () => { throw new Error("ERR_HTTP2_PROTOCOL_ERROR"); };
+    const h1Ok = async () => ({ statusCode: 200, headers: {}, raw: JSON.stringify({ model: "m", answers: {}, usage: { input_tokens: 1, output_tokens: 0 } }), socketReused: true });
+    const r = await C.decide(good, { transport: C.autoTransport(h2Broken, h1Ok), apiKey: "sk-test", retries: 0 });
+    check("fallback auto h2→h1 em erro de transporte", r.response.model === "m");
+  } catch (e) {
+    check("fallback auto h2→h1 em erro de transporte", false, e.message);
+  }
+
+  // h2 real contra servidor LOCAL (loopback, determinístico): reutilização de
+  // sessão e regressão do leak de evento 'close' tardio entre ciclos de closeAgents.
+  try {
+    const http2mod = await import("node:http2");
+    const server = http2mod.createServer();
+    let openSessions = 0;
+    server.on("session", (s) => { openSessions++; s.on("close", () => { openSessions--; }); });
+    server.on("stream", (stream) => {
+      stream.respond({ ":status": 200, "content-type": "application/json" });
+      stream.end(JSON.stringify({ model: "local", answers: {}, usage: { input_tokens: 1, output_tokens: 0 } }));
+    });
+    await new Promise((r) => server.listen(0, "127.0.0.1", r));
+    const urlObj = new URL(`http://127.0.0.1:${server.address().port}/decisions`);
+    const tOpts = { headers: { "content-type": "application/json" }, body: "{}", timeoutMs: 2000 };
+
+    // 2 ciclos com closeAgents intermédio: o 'close' tardio da sessão antiga não
+    // pode apagar a entrada da sessão nova (já causou processo que não termina).
+    const r1 = await C.postH2(urlObj, tOpts);
+    C.closeAgents();
+    const r2 = await C.postH2(urlObj, tOpts);
+    C.closeAgents();
+    const waitFor = async (pred, ms) => {
+      const t0 = performance.now();
+      while (performance.now() - t0 < ms) { if (pred()) return true; await new Promise((r) => setTimeout(r, 25)); }
+      return pred();
+    };
+    const drained = await waitFor(() => openSessions === 0, 1000);
+    check("h2: 2 ciclos closeAgents sem leak de sessão", r1.statusCode === 200 && r2.statusCode === 200 && drained,
+      `status ${r1.statusCode}/${r2.statusCode} · sessões servidor=${openSessions}`);
+
+    // Reutilização: 2º pedido na mesma sessão = socket_reused true.
+    const r3 = await C.postH2(urlObj, tOpts);
+    const r4 = await C.postH2(urlObj, tOpts);
+    check("h2: reutilização de sessão reportada", r3.socketReused === false && r4.socketReused === true,
+      `reused ${r3.socketReused}/${r4.socketReused}`);
+    C.closeAgents();
+    server.close();
+  } catch (e) {
+    check("h2: 2 ciclos closeAgents sem leak de sessão", false, e.message);
+  }
+
+  try {
+    await C.decide(good, { transport: fakeRetry, apiKey: null, env: {} });
     check("sem chave → erro claro", false, "não lançou erro");
   } catch (e) {
     check("sem chave → erro claro", /OPENROUTER_API_KEY/.test(e.message));
   }
+
+  // --- coerência extra da resposta ----------------------------------------
+  const badLegend = JSON.parse(JSON.stringify(resp));
+  badLegend.answers.urgency.legend = { 0: "baixa", 1: "MÉDIA DIFERENTE", 2: "alta" };
+  const rv4 = validateResponse(req, badLegend);
+  check("legend que não ecoa o criteria → aviso", rv4.warnings.some((w) => w.code === "score.legend_echo_mismatch"));
+
+  check("score traz normalized 0..1", rv.decisions.urgency.normalized === 0.995, JSON.stringify(rv.decisions.urgency));
 
   // --- relatório ---------------------------------------------------------
   const passed = cases.filter((c) => c.pass).length;
@@ -648,6 +745,7 @@ Opções:
 Env:
   OPENROUTER_API_KEY        chave do OpenRouter (https://openrouter.ai/keys)
   JEV_MODEL / JEV_SURFACE (decisions|systemone|typesafe) / JEV_BASE_URL
+  JEV_TRANSPORT             h1 (padrão, keep-alive) | h2 (multiplexado) | auto
 
 Exit codes: 0 ok · 1 erro de API/execução · 2 requisição inválida.`);
 }

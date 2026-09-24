@@ -3,6 +3,27 @@
 Aprendizados em probação ou consolidados. Fonte: `usuário` > `docs oficiais` > `inferência`.
 Padrões estáveis sobem para o corpo do `SKILL.md` e `metadata.version` incrementa.
 
+## 2026-09-24 — ronda de performance (fonte: benchmark medido)
+
+- **Medir antes de otimizar inverteu uma decisão**: a hipótese "h2 multiplexado
+  vence em rajadas" FALHOU no endpoint real — rajadas frias de 8 mostram h2 com
+  cauda em ondas (~1180 ms, 2-3/8 rápidos) vs h1 com ~6/8 ≤430 ms: N streams
+  partilham 1 cwnd TCP (head-of-line blocking) e h1 dá um socket/cwnd por
+  pedido. Default mudou de `auto`(h2) para `h1`; h2 fica como opção por recursos.
+  Ver `references/benchmarks.md` §2. (medido, 2 rondas pareadas)
+- **Leak de sessão h2 por evento `close` tardio**: handler fazia
+  `map.delete(key)` sem verificar identidade — o `close` da sessão antiga
+  apagava a entrada da sessão nova → sessão órfã segura o event loop → processo
+  que nunca termina. Regra: em handlers de ciclo de vida de cache, só evict se
+  `map.get(key) === this`. Regressão coberta com servidor h2 local no selftest.
+- **Lazy-import de módulos de rede corta 29% do arranque da CLI** (38→26 ms):
+  `help`/`validate` não carregam `node:https`/`node:http2`/`readline`.
+- **Bench intercalado ou não vale**: blocos corridos por modo eram confundidos
+  por variância temporal do serviço (até 3× de diferença entre corridas);
+  rondas intercaladas h1/h2/auto + histogramas por pedido deram a resposta.
+- Descartado com evidência: V8 snapshots, undici como dependência, cache de
+  respostas (ver benchmarks.md §4 — anti-overenginier).
+
 ## 2026-09-24 — testes de prompt injection (fonte: medições ao vivo)
 
 - **Guardrail `noul` deteta injeção em 8/8 cenários** (conf. média 0.97), incluindo

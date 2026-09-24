@@ -1,16 +1,24 @@
 // client.mjs — Transporte HTTP de baixa latência para a Decisions API do Jev
-// via OpenRouter. Zero dependências (node:https nativo).
+// via OpenRouter. Zero dependências (node:http2 + node:https nativos).
 //
 // Física de latência (ver references/latencia.md): cada processo efémero que
 // abre socket novo paga DNS + TCP + TLS (~3-4 RTT). Este cliente mantém
-// `keepAlive: true` com soquetes quentes e reporta `socket_reused` na
-// telemetria — depois da 1ª chamada, a latência colapsa para ~1 RTT.
+// `keepAlive` com soquetes quentes e reporta `socket_reused` na telemetria.
+//
+// Modos de transporte (env JEV_TRANSPORT ou opts.transportMode):
+//   h1 (padrão) — HTTP/1.1 keep-alive: 1 socket quente por ligação em rajada,
+//                 cada pedido com o seu cwnd. Medido como melhor distribuição de
+//                 latência em rajadas paralelas (ver references/benchmarks.md).
+//   h2          — HTTP/2 multiplexado: 1 canal TLS para N pedidos (poupa
+//                 sockets; sofre ondas de serialização em rajadas frias).
+//   auto        — tenta h2 e cai para h1 em erro de transporte.
 //
 // Retentativas: 429/529/5xx e erros de rede → backoff exponencial com jitter,
-// honrando `Retry-After` (regra dos SDKs oficiais: ninguém honra sozinho).
-// 400/401/402/403/404/413/422 são terminais (não repetir).
+// honrando `Retry-After` (limitado a maxRetryWaitMs). 400/401/402/403/404/413/422
+// são terminais (não repetir) — decisão rápida exige falhar rápido.
 
 import https from "node:https";
+import http2 from "node:http2";
 import { URL } from "node:url";
 
 export const SURFACES = Object.freeze({
@@ -23,7 +31,7 @@ export const DEFAULT_MODEL = "typesafe/jev-1.13";
 
 // Códigos que VALEM a pena repetir (transientes).
 const RETRYABLE = new Set([429, 500, 502, 503, 504, 524, 529]);
-// Códigos terminais: repetir só desperdiça tempo (decisão rápida exige falhar rápido).
+// Códigos terminais: repetir só desperdiça tempo.
 const TERMINAL = new Set([400, 401, 402, 403, 404, 413, 422]);
 
 const TERMINAL_HINTS = {
@@ -57,10 +65,9 @@ export function resolveSurface(env = process.env) {
   return SURFACES[s] || SURFACES.decisions;
 }
 
-/**
- * Pool de soquetes persistentes por host (warm sockets).
- * keepAliveMsecs=60s: o canal TLS fica pronto para a próxima decisão.
- */
+// ---------------------------------------------------------------------------
+// HTTP/1.1 — pool de soquetes persistentes por host (warm sockets)
+// ---------------------------------------------------------------------------
 const agents = new Map();
 function agentFor(url) {
   if (!agents.has(url.origin)) {
@@ -85,7 +92,8 @@ function parseRetryAfter(header) {
   return Number.isFinite(when) ? Math.max(0, when - Date.now()) : null;
 }
 
-function post(url, { headers, body, timeoutMs }) {
+/** POST HTTP/1.1 keep-alive. `req.reusedSocket` = socket quente reutilizado. */
+export function post(url, { headers, body, timeoutMs }) {
   return new Promise((resolve, reject) => {
     const req = https.request(url, {
       method: "POST",
@@ -113,8 +121,87 @@ function post(url, { headers, body, timeoutMs }) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// HTTP/2 — uma sessão TLS por host, N streams multiplexados
+// ---------------------------------------------------------------------------
+const h2Sessions = new Map();
+function sessionFor(url) {
+  const key = url.origin;
+  let s = h2Sessions.get(key);
+  if (s && !s.closed && !s.destroyed) return { session: s, reused: true };
+  if (s) { try { s.destroy(); } catch { /* já morta */ } }
+  s = http2.connect(url.origin, { settings: { enablePush: false } });
+  // Só remove a entrada se AINDA for esta sessão: o evento 'close' de uma sessão
+  // antiga chega assincronamente e apagaria a entrada da sessão nova (leak).
+  const evict = () => { if (h2Sessions.get(key) === s) h2Sessions.delete(key); };
+  s.on("error", evict);
+  s.on("close", evict);
+  h2Sessions.set(key, s);
+  return { session: s, reused: false };
+}
+
+/** POST HTTP/2 multiplexado. Headers de conexão são removidos (proibidos em h2). */
+export function postH2(url, { headers, body, timeoutMs }) {
+  return new Promise((resolve, reject) => {
+    const { session, reused } = sessionFor(url);
+    const h2headers = { ":method": "POST", ":path": url.pathname };
+    for (const [k, v] of Object.entries(headers)) {
+      const lk = k.toLowerCase();
+      if (lk === "connection" || lk === "keep-alive" || lk === "transfer-encoding" || lk === "host") continue;
+      h2headers[lk] = v;
+    }
+    const req = session.request(h2headers);
+    const timer = setTimeout(() => req.destroy(new Error("timeout")), timeoutMs);
+    const chunks = [];
+    let status = 0;
+    let respHeaders = {};
+    req.on("response", (h) => {
+      status = Number(h[":status"]) || 0;
+      respHeaders = h;
+    });
+    req.on("data", (c) => chunks.push(c));
+    req.on("end", () => {
+      clearTimeout(timer);
+      resolve({
+        statusCode: status,
+        headers: respHeaders,
+        socketReused: reused,
+        raw: Buffer.concat(chunks).toString("utf8"),
+      });
+    });
+    req.on("error", (e) => { clearTimeout(timer); reject(e); });
+    req.end(body);
+  });
+}
+
 /**
- * Envia uma requisição Decisions e devolve a resposta validada em forma bruta.
+ * Transporte auto: tenta h2 e cai para h1 em erro de TRANSPORTE.
+ * Respostas da API (mesmo não-2xx) passam sempre — quem decide retentativas é o decide().
+ */
+export function autoTransport(h2Impl = postH2, h1Impl = post) {
+  return async (url, opts) => {
+    try {
+      return await h2Impl(url, opts);
+    } catch {
+      return await h1Impl(url, opts);
+    }
+  };
+}
+
+function transportFor(opts, env) {
+  if (typeof opts.transport === "function") return opts.transport;
+  const mode = (opts.transportMode || env.JEV_TRANSPORT || "h1").toLowerCase();
+  if (mode === "h2") return postH2;
+  if (mode === "auto") return autoTransport();
+  return post;
+}
+
+// ---------------------------------------------------------------------------
+// decide()
+// ---------------------------------------------------------------------------
+
+/**
+ * Envia uma requisição Decisions e devolve a resposta + telemetria.
  * `transport` é injetável para selftest offline.
  */
 export async function decide(request, opts = {}) {
@@ -123,7 +210,8 @@ export async function decide(request, opts = {}) {
   const endpoint = opts.endpoint || resolveSurface(env);
   const retries = opts.retries ?? 2;
   const timeoutMs = opts.timeoutMs ?? 15_000;
-  const transport = opts.transport || post;
+  const maxRetryWaitMs = opts.maxRetryWaitMs ?? 10_000;
+  const transport = transportFor(opts, env);
   const url = new URL(endpoint);
 
   if (!apiKey) {
@@ -150,7 +238,7 @@ export async function decide(request, opts = {}) {
       res = await transport(url, { headers, body, timeoutMs });
     } catch (netErr) {
       lastErr = new JevClientError(`Falha de rede: ${netErr.message}`, { retriable: true, attempts: attempt + 1 });
-      if (attempt < retries) { await delay(backoffMs(attempt)); continue; }
+      if (attempt < retries) { await delay(Math.min(backoffMs(attempt), maxRetryWaitMs)); continue; }
       throw lastErr;
     }
 
@@ -186,7 +274,7 @@ export async function decide(request, opts = {}) {
 
     if (RETRYABLE.has(res.statusCode) && attempt < retries) {
       const ra = parseRetryAfter(res.headers && res.headers["retry-after"]);
-      await delay(ra ?? backoffMs(attempt));
+      await delay(Math.min(ra ?? backoffMs(attempt), maxRetryWaitMs));
       lastErr = new JevClientError(`HTTP ${res.statusCode}${apiMsg ? `: ${apiMsg}` : ""}`, { status: res.statusCode, body: errBody, retriable: true, attempts: attempt + 1 });
       continue;
     }
@@ -235,8 +323,12 @@ export async function checkKey(opts = {}) {
   });
 }
 
-/** Fecha os pools (útil em scripts de teste para o processo terminar). */
+/** Fecha pools e sessões (para scripts de teste terminarem limpos).
+ *  Sessões h2 são destroy() — close() gracioso segura o event loop e o
+ *  processo nunca termina (armadilha verificada no bench). */
 export function closeAgents() {
   for (const a of agents.values()) a.destroy();
   agents.clear();
+  for (const s of h2Sessions.values()) { try { s.destroy(); } catch { /* já morta */ } }
+  h2Sessions.clear();
 }

@@ -462,6 +462,9 @@ export function validateResponse(req, res, thresholds = DEFAULT_THRESHOLDS) {
           `score=${s} fora da régua [0, ${maxLevel}] definida pelos ${levels.length} níveis.`, where);
       }
       decisions[qid] = { value: s, ...decideBand(a, thresholds) };
+      if (levels.length > 1) {
+        decisions[qid].normalized = round4(s / (levels.length - 1)); // 0..1 p/ composição de scores
+      }
     }
     const probs = isPlainObject(a.probabilities) ? a.probabilities : null;
     if (probs) {
@@ -484,6 +487,16 @@ export function validateResponse(req, res, thresholds = DEFAULT_THRESHOLDS) {
         if (!Number.isInteger(idx) || idx < 0 || idx >= levels.length) {
           report.warn("score.legend_mismatch",
             `legend["${k}"] não corresponde a um índice da régua enviada.`, where);
+        } else {
+          // O legend ecoa as descrições dos níveis ENVIADOS — se divergir, houve
+          // corrupção de transporte/parse (o modelo nunca reescreve o criteria).
+          const echoed = a.legend[k];
+          const sent = levels[idx];
+          const norm = (v) => (typeof v === "string" ? v.trim() : JSON.stringify(v ?? null));
+          if (norm(echoed) !== norm(sent)) {
+            report.warn("score.legend_echo_mismatch",
+              `legend[${k}] não ecoa o nível enviado ("${norm(sent).slice(0, 60)}" vs "${norm(echoed).slice(0, 60)}").`, where);
+          }
         }
       }
     }

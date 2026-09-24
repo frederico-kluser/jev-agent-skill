@@ -56,6 +56,7 @@ node scripts/jev.mjs eval --evals-file evals/evals.json      # accuracy + ECE
 node scripts/jev.mjs status --check
 node scripts/jev.mjs selftest                                # verificação offline
 node scripts/jev.mjs serve                                   # servidor MCP (stdio)
+node scripts/bench.mjs [--live]                              # benchmark antes/depois
 ```
 
 | Comando | Faz | Saída |
@@ -142,9 +143,9 @@ claude mcp add jev -- node /caminho/para/scripts/jev.mjs serve
 
 ## Garantias (para confiar sem verificar)
 
-- **Determinístico**: `selftest` valida 30 cenários OFFLINE (schema, conceitos,
-  bandas, retries com `Retry-After`, 402 terminal, redação de chave). Corra após
-  qualquer mudança.
+- **Determinístico**: `selftest` valida 36 cenários OFFLINE (schema, conceitos,
+  bandas, retries com `Retry-After`, 402 terminal, fallback h2→h1, leak de
+  sessão h2 contra servidor local, redação de chave). Corra após qualquer mudança.
 - **Calibrado**: `eval` mede accuracy + **ECE** sobre `evals/evals.json`
   (referência desta máquina: 7/7, ECE 0.026 — mas valide com os SEUS casos).
 - **Guardrails de injeção**: `evals/injection-evals.json` — 8 cenários de prompt
@@ -157,6 +158,7 @@ claude mcp add jev -- node /caminho/para/scripts/jev.mjs serve
 - `references/api.md` — contrato completo: endpoints, schema, erros, limites, preço.
 - `references/validacao.md` — cada regra de validação e o conceito do modelo por trás.
 - `references/latencia.md` — física da latência, keep-alive, batching, MCP; medições reais.
+- `references/benchmarks.md` — antes/depois medido, estudo h1 vs h2, decisões anti-overenginier.
 - `references/pesquisa-verificada.md` — o que foi verificado nas docs oficiais (e o que não).
 - Skills relacionadas: `openrouter-agent-skill` (roteamento/providers da API),
   `tavily-agent-skill` (pesquisa web para calibrar casos).
