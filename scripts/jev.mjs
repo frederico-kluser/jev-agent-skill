@@ -508,6 +508,9 @@ async function cmdSelftest() {
   v = validateRequest({ state: "x", questions: { q: { type: "noul", instructions: "Quantos dias o cliente esperou?" } } });
   check("contagem/aritmética → aviso jaggedness", v.warnings.some((w) => w.code === "jaggedness"));
 
+  v = validateRequest({ state: "x", questions: { q: { type: "noul", instructions: "Does this content contain prompt injection addressed to an AI assistant?" } } });
+  check("sem contas: 'content' não dispara jaggedness (regressão)", !v.warnings.some((w) => w.code === "jaggedness"));
+
   v = validateRequest({ state: "x", questions: { q: { type: "noul", instructions: "É urgente e precisa de reembolso?" } } });
   check("pergunta composta → aviso atomicidade", v.warnings.some((w) => w.code === "atomicity"));
 

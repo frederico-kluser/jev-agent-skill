@@ -80,7 +80,8 @@ class Report {
 const GENERATIVE_PATTERNS = /\b(explain|explain why|justify|write|generate|draft|summarize|translate|rewrite|describe in detail)\b|(explique|explique porquê|justifique|escreva|gere|redija|resuma|resumo de|traduza|reescreva|descreva em detalhe)/i;
 
 // Falhas documentadas de jaggedness: contagem, aritmética exata, datas, multi-hop.
-const JAGGED_PATTERNS = /\b(how many|count|count the|sum|add up|calculate|compute|multiply|divide|percentage of|what date|which date|how old|how long ago|days between|exact number|total number)\b|(quantos|quantas|conte|contar|some|somar|calcule|calcular|multiplique|divida|percentual de|qual data|que data|quantos dias|quantos anos|há quanto tempo|número exato|total de)/i;
+// Fronteiras de palavra são obrigatórias: sem elas, "conte" casa dentro de "content".
+const JAGGED_PATTERNS = /\b(how many|count(?: the)?|sum|add up|calculate|compute|multiply|divide|percentage of|what date|which date|how old|how long ago|days between|exact number|total number)\b|\b(quantos?|quantas?|conte|contar|somar|calcule|calcular|multiplique|divida|percentual de|qual data|que data|quantos dias|quantos anos|há quanto tempo|número exato|total de)\b/i;
 
 const NO_MATCH_KEYS = /^(other|others|unknown|none|n\/?a|not[_ -]?applicable|unclear|outro|outra|outros|outras|nenhum|nenhuma|não[_ -]?se[_ -]?aplica|indeterminado|indefinido)$/i;
 

@@ -142,11 +142,14 @@ claude mcp add jev -- node /caminho/para/scripts/jev.mjs serve
 
 ## Garantias (para confiar sem verificar)
 
-- **Determinístico**: `selftest` valida 29 cenários OFFLINE (schema, conceitos,
+- **Determinístico**: `selftest` valida 30 cenários OFFLINE (schema, conceitos,
   bandas, retries com `Retry-After`, 402 terminal, redação de chave). Corra após
   qualquer mudança.
 - **Calibrado**: `eval` mede accuracy + **ECE** sobre `evals/evals.json`
   (referência desta máquina: 7/7, ECE 0.026 — mas valide com os SEUS casos).
+- **Guardrails de injeção**: `evals/injection-evals.json` — 8 cenários de prompt
+  injection (limpos vs. injetados a meio do texto): 8/8, conf 0.97. A deteção é
+  sinal para banda `hitl`/`abstain`, nunca permissão de execução.
 - **Orçamento de contexto**: saída JSON enxuta; validação barata antes de gastar tokens.
 
 ## Referências
