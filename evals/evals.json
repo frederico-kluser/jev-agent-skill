@@ -1,0 +1,106 @@
+[
+  {
+    "name": "en-bug-checkout",
+    "state": "My checkout page shows a blank screen after I click Pay. I have tried two browsers. We are losing sales.",
+    "questions": {
+      "is_bug": {
+        "type": "noul",
+        "instructions": "Is the customer reporting a software defect?",
+        "criteria": {
+          "true": "The customer describes broken or unexpected product behavior.",
+          "false": "The customer is asking a question or requesting a feature."
+        }
+      },
+      "team": {
+        "type": "choice",
+        "instructions": "Which team should own this ticket?",
+        "criteria": {
+          "account": "Login, permissions, or profile issues.",
+          "frontend": "Rendering, layout, or browser compatibility issues.",
+          "payments": "Checkout, billing, or payment processing issues.",
+          "other": "None of the above teams fits."
+        }
+      }
+    },
+    "expected": { "is_bug": true, "team": "payments" }
+  },
+  {
+    "name": "en-feature-request",
+    "state": "Could you add a dark mode toggle to the settings page? It would be nice to have.",
+    "questions": {
+      "is_bug": {
+        "type": "noul",
+        "instructions": "Is the customer reporting a software defect?",
+        "criteria": {
+          "true": "The customer describes broken or unexpected product behavior.",
+          "false": "The customer is asking a question or requesting a feature."
+        }
+      }
+    },
+    "expected": { "is_bug": false }
+  },
+  {
+    "name": "en-urgency-high",
+    "state": "URGENT: production is down for all users since this morning. Every minute costs us money. Please help ASAP.",
+    "questions": {
+      "urgency": {
+        "type": "score",
+        "instructions": "How urgent is this request?",
+        "criteria": [
+          "Can wait for the next release",
+          "Should be handled this week",
+          "Blocking production right now"
+        ]
+      }
+    },
+    "expected": { "urgency": 2 }
+  },
+  {
+    "name": "ptbr-urgencia-alta",
+    "state": "URGENTE: o sistema caiu e não conseguimos processar nenhum pagamento. Estamos a perder vendas a cada minuto, precisamos de ajuda já.",
+    "questions": {
+      "urgente": {
+        "type": "noul",
+        "instructions": "A mensagem expressa urgência?",
+        "criteria": {
+          "true": "O cliente pede resposta imediata ou descreve impacto em tempo real.",
+          "false": "O cliente demonstra paciência ou não menciona pressa."
+        }
+      }
+    },
+    "expected": { "urgente": true }
+  },
+  {
+    "name": "ptbr-calma",
+    "state": "Bom dia! Gostaria de saber se vocês fazem entregas em Manaus e qual o prazo. Sem urgência nenhuma, é só para planejar uma compra no mês que vem.",
+    "questions": {
+      "urgente": {
+        "type": "noul",
+        "instructions": "A mensagem expressa urgência?",
+        "criteria": {
+          "true": "O cliente pede resposta imediata ou descreve impacto em tempo real.",
+          "false": "O cliente demonstra paciência ou não menciona pressa."
+        }
+      }
+    },
+    "expected": { "urgente": false }
+  },
+  {
+    "name": "ptbr-intencao-compra",
+    "state": "Quero comprar o plano anual Pro hoje mesmo, pode me passar o link de pagamento?",
+    "questions": {
+      "intencao": {
+        "type": "choice",
+        "instructions": "Qual a intenção principal do cliente nesta mensagem?",
+        "criteria": {
+          "duvida_logistica": "Pergunta sobre entrega, prazo ou cobertura.",
+          "reclamacao": "Expressa insatisfação com produto ou serviço.",
+          "compra": "Quer comprar ou reservar um produto agora.",
+          "suporte_tecnico": "Precisa de ajuda com um produto que já comprou.",
+          "outro": "Nenhuma das opções anteriores se aplica."
+        }
+      }
+    },
+    "expected": { "intencao": "compra" }
+  }
+]

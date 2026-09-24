@@ -1,0 +1,38 @@
+{
+  "model": "typesafe/jev-1.13",
+  "state": {
+    "mensagem": "Bom dia! Gostaria de saber se vocês fazem entregas em Manaus e qual o prazo. Sem urgência nenhuma, é só para planejar uma compra no mês que vem.",
+    "canal": "formulario_web",
+    "cliente_desde": "2024"
+  },
+  "questions": {
+    "intencao": {
+      "type": "choice",
+      "instructions": "Qual a intenção principal do cliente nesta mensagem?",
+      "criteria": {
+        "duvida_logistica": "Pergunta sobre entrega, prazo ou cobertura.",
+        "reclamacao": "Expressa insatisfação com produto ou serviço.",
+        "compra": "Quer comprar ou reservar um produto agora.",
+        "suporte_tecnico": "Precisa de ajuda com um produto que já comprou.",
+        "outro": "Nenhuma das opções anteriores se aplica."
+      }
+    },
+    "urgente": {
+      "type": "noul",
+      "instructions": "A mensagem expressa urgência?",
+      "criteria": {
+        "true": "O cliente pede resposta imediata ou descreve impacto em tempo real.",
+        "false": "O cliente demonstra paciência ou não menciona pressa."
+      }
+    },
+    "prioridade": {
+      "type": "score",
+      "instructions": "Qual o nível de prioridade para responder?",
+      "criteria": [
+        "Pode responder em até uma semana",
+        "Responder em um ou dois dias úteis",
+        "Responder no mesmo dia"
+      ]
+    }
+  }
+}
