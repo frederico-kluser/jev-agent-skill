@@ -163,9 +163,9 @@ claude mcp add jev -- node /caminho/para/scripts/jev.mjs serve
 - Skills relacionadas: `openrouter-agent-skill` (roteamento/providers da API),
   `tavily-agent-skill` (pesquisa web para calibrar casos).
 
-## <evolution>
+## registo de aprendizado (memória CoALA local)
 
 Tarefa com ciclo de evolução: ao fim de cada uso com surpresa ou correção,
-registar o aprendizado em `LEARNINGS.md` (com fonte: usuário > docs > inferência);
+registar o aprendizado na memória CoALA local (`coala.py add`, com fonte: usuário > docs > inferência);
 se virar padrão estável, destilar no corpo acima e incrementar `metadata.version`.
 Mudanças ficam como diff git para revisão humana — nunca auto-merge.

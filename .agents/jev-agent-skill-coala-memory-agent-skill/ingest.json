@@ -1,0 +1,42 @@
+{
+  "_doc": "Memória interna do repo jev-agent-skill para `coala.py ingest`. LEARNINGS.md (episódica) + skill/references (semântica).",
+  "version": 1,
+  "key_prefix": "jev",
+  "path_prefix": "",
+  "exclude": [],
+  "rules": [
+    {
+      "name": "learnings",
+      "include": ["LEARNINGS.md"],
+      "mode": "markdown",
+      "type": "episodic",
+      "origin": "agent",
+      "tags": "learnings,evolucao,historico"
+    },
+    {
+      "name": "skill",
+      "include": ["SKILL.md"],
+      "mode": "markdown",
+      "type": "semantic",
+      "origin": "agent",
+      "tags": "skill,contrato"
+    },
+    {
+      "name": "referencias",
+      "include": ["references/**/*.md"],
+      "mode": "markdown",
+      "type": "semantic",
+      "origin": "agent",
+      "tags": "referencia,{stem}"
+    },
+    {
+      "name": "readme",
+      "include": ["README.md"],
+      "mode": "markdown",
+      "type": "semantic",
+      "origin": "agent",
+      "tags": "docs,readme"
+    }
+  ],
+  "graph": { "entities": [], "edges": [] }
+}
