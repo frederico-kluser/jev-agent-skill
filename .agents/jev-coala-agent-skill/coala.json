@@ -1,22 +1,22 @@
 {
   "coala_manifest": 1,
-  "project": "jev-agent-skill",
+  "project": "jev",
   "skill": "jev-coala-agent-skill",
   "db": "memory/coala.sqlite",
   "engine": {
     "file": "scripts/coala.py",
     "version": "3.0.0",
-    "sha256": "41c550b6f0a462170fe4f37cc2b03094f2e06a967efac049f805f3e705b7db53"
+    "sha256": "2fd31064a98da803a94dfdb903f448daa551feeecc5b7dc7b371337ce88eee67"
   },
   "schema_version": 4,
   "git_policy": "ignore",
   "installer": "coala-agent-skill/scripts/coala-install.py",
   "installed_at": "2026-09-27T09:12:18+00:00",
-  "updated_at": "2026-10-12T19:42:27+00:00",
+  "updated_at": "2026-10-15T23:12:55+00:00",
   "managed": {
-    "SKILL.md": "311c2860373c51746d29bef745affe09b14c8969e5fef671869b0533fdd9ec49",
+    "SKILL.md": "375ad49fe16a7be6b9dbba9109b361f7f5634f5c582adb5d2cc192ea065f1236",
     "memory/.gitignore": "5941079484623004d0493eda784610b14f22d89d4a7473df50f514a8a3b044d4",
-    "references/schema.md": "350f2e0b075c382ecadb608819ad31ebd76cacef3ecaf95db3775b23c09699ea",
-    "scripts/coala.py": "41c550b6f0a462170fe4f37cc2b03094f2e06a967efac049f805f3e705b7db53"
+    "references/schema.md": "d7bdd6cb63f82d0daf645c311e9b72a958b008ec09ab516759d1466905f46027",
+    "scripts/coala.py": "2fd31064a98da803a94dfdb903f448daa551feeecc5b7dc7b371337ce88eee67"
   }
 }

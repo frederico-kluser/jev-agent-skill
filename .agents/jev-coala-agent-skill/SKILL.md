@@ -1,15 +1,15 @@
 ---
 name: jev-coala-agent-skill
-description: "Memória e catálogo CoALA/SQLite LOCAIS do projeto jev-agent-skill — o que já se decidiu, como se faz aqui e ONDE está cada coisa: notas (decisões, factos, procedimentos), documentos ingeridos e mapa do código (símbolos com ficheiro:linha), puxados por níveis (map → recall → search/symbols → get) em vez de despejados no contexto. Use SEMPRE que trabalhar em jev-agent-skill: no início de uma tarefa não trivial para recuperar contexto, quando precisar de 'o que sabemos sobre…', 'porque decidimos…', 'como se faz isto aqui', 'onde está definido…', 'que ficheiros usam…', e no fim para registar o que for durável e verificado. Não usar para segredos nem para estado volátil da tarefa."
+description: "Memória e catálogo CoALA/SQLite LOCAIS do projeto jev — o que já se decidiu, como se faz aqui e ONDE está cada coisa: notas (decisões, factos, procedimentos), documentos ingeridos e mapa do código (símbolos com ficheiro:linha), puxados por níveis (map → recall → search/symbols → get) em vez de despejados no contexto. Use SEMPRE que trabalhar em jev: no início de uma tarefa não trivial para recuperar contexto, quando precisar de 'o que sabemos sobre…', 'porque decidimos…', 'como se faz isto aqui', 'onde está definido…', 'que ficheiros usam…', e no fim para registar o que for durável e verificado. Não usar para segredos nem para estado volátil da tarefa."
 metadata:
   type: coala-project-memory
   technique: coala
-  project: jev-agent-skill
+  project: jev
   engine: "coala.py v3.0.0 (Python 3 stdlib)"
   managed-by: coala-agent-skill
 ---
 
-# Memória e catálogo CoALA — jev-agent-skill
+# Memória e catálogo CoALA — jev
 
 Tudo o que este projeto sabe sobre si próprio vive em `memory/coala.sqlite` (local, só deste projeto) e
 é consultado por um comando — nunca abrindo a base nem um dump:
@@ -51,7 +51,8 @@ $COALA add --type episodic   --content "AAAA-MM-DD: …o que aconteceu e o que s
 ```
 
 - **`--key` sempre** em factos e procedimentos: o mesmo `add` com a MESMA chave suplanta a versão anterior
-  (ou `$COALA supersede <id> --content "…"`). O histórico fica; nada se apaga.
+  (ou `$COALA supersede <id> --content "…"`). O histórico fica; nada se apaga (a única exceção:
+  `forget --tag`, por privacidade, apaga de verdade).
 - **Cita os ficheiros** de que a nota fala (`src/x.py`): ficam ligados a ela, e se mudarem a nota passa a
   avisar `⚠ … mudou desde que esta nota foi escrita` — aí confirma no código e corrige-a com `supersede`.
 - Se o `add` disser «parecida com #N», era uma atualização: usa `supersede N` em vez de duplicar.
