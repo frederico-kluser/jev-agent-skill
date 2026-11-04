@@ -30,6 +30,16 @@ e análise legível saem.** O SOM não gera uma explicação livre: o relatório
 runtime usa templates determinísticos; o agente pode explicar os resultados em
 português, separando resultado, interpretação e incerteza.
 
+## 0. Computer use — imagem sem HTML
+
+Antes de planear qualquer automação de UI, carregue
+[references/computer-use.md](references/computer-use.md). Resumo: o modelo oficial
+**funciona só com a imagem** (as medições foram feitas assim), mas sem HTML ele
+**não enumera nem dá coordenadas** — julga candidatos propostos por DOM/OCR e é
+melhor como *gate* ("existe e é interactivo?"), *ranking* de candidatos e
+*pós-checagem* de acção. "Não" é sinal fraco (recall 0,85); "sim" é forte
+(precisão 0,95). Custo ~US$ 0,03–0,04 por 1000 gates com 1 imagem.
+
 ## 1. Começar pelo pedido e pelo código existente
 
 1. Se trabalhar neste repositório, consulte `som-coala-agent-skill` antes da tarefa
