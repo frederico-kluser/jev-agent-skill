@@ -1,5 +1,10 @@
 # SOMs para analisar interfaces — pesquisa e protocolo, 2026-11-04
 
+> **Resultado da execução:** ver [comparativo-ui-2026-11-04.md](comparativo-ui-2026-11-04.md).
+> A run paga (US$ 0,047) mediu os 7 SOMs: `perplexity/pplx-decider-v1.2` ficou à frente
+> no treino e no holdout, com presença sem FP/FN — adotado como `--preset ui`, sem
+> remover o Clef do vídeo nativo nem o Jev do `box`.
+
 ## Estado desta etapa
 
 Pesquisa documental e descoberta pública concluídas. **Ainda não há vencedor
