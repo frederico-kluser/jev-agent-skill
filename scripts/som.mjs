@@ -908,6 +908,9 @@ Opções:
   --fail-on-response-errors alias legado; respostas inválidas agora sempre dão exit 2
 
 Mídia (analyze ou ask --image/--video; flags repetíveis):
+  --preset ui|video-frames|video-native
+                            escolhe o adaptador MEDIDO da tarefa (UI → Perplexity
+                            Decider; vídeo → Jev-frames ou Clef-native)
   --video-mode frames|native frames usa Jev; native sem --model seleciona Clef Omni
   --fps <n> --max-frames <n> amostragem frames (padrão 0.5 fps, teto 12; máximo local 64)
   --start <s> --end <s>     intervalo frames; não recorta vídeo nativo silenciosamente
