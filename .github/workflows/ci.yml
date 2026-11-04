@@ -62,8 +62,15 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ matrix.node }}
-      - name: Install local media decoders
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      # Os testes de mídia real são condicionais a FFmpeg existir: o espelho apt
+      # não pode travar o job (já travou >6 min). Falha aqui = testes de mídia
+      # ignorados, nunca um falso verde dos restantes.
+      - name: Install local media decoders (best effort)
+        timeout-minutes: 5
+        continue-on-error: true
+        run: |
+          sudo timeout 240 apt-get update
+          sudo timeout 240 apt-get install -y --no-install-recommends ffmpeg
       - name: Legacy selftest
         run: node scripts/som.mjs selftest
       - name: Unit and contract tests (no model credentials)
