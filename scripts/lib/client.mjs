@@ -20,14 +20,15 @@
 import https from "node:https";
 import http2 from "node:http2";
 import { URL } from "node:url";
+import { DEFAULT_MODEL } from "./capabilities.mjs";
+export { DEFAULT_MODEL };
+const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 
 export const SURFACES = Object.freeze({
   decisions: "https://openrouter.ai/api/alpha/decisions", // Decisions API (alpha)
   systemone: "https://openrouter.ai/api/v1/systemone",    // compatível com SDK TypeSafe
   typesafe: "https://api.typesafe.ai/v1/systemone",       // superfície nativa
 });
-
-export const DEFAULT_MODEL = "typesafe/jev-1.13";
 
 // Códigos que VALEM a pena repetir (transientes).
 const RETRYABLE = new Set([429, 500, 502, 503, 504, 524, 529]);
@@ -55,13 +56,37 @@ export class JevClientError extends Error {
   }
 }
 
-export function resolveApiKey(env = process.env) {
-  return env.OPENROUTER_API_KEY || env.JEV_API_KEY || env.TYPESAFE_API_KEY || null;
+export { JevClientError as SomClientError };
+
+/** Valida sem rede/chave; compartilhada com o preflight de análise. */
+export function validateTransportOptions(opts = {}) {
+  if (!opts || typeof opts !== "object" || Array.isArray(opts)) throw new JevClientError("Opções inválidas: use objeto de configuração.");
+  const retries = opts.retries ?? 2;
+  const timeoutMs = opts.timeoutMs ?? 15_000;
+  const maxRetryWaitMs = opts.maxRetryWaitMs ?? 10_000;
+  if (!Number.isInteger(retries) || retries < 0 || retries > 10 || !Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > 600_000 || !Number.isFinite(maxRetryWaitMs) || maxRetryWaitMs < 0) {
+    throw new JevClientError("Opções inválidas: retries inteiro 0..10; timeoutMs >0 e <=600000; maxRetryWaitMs >=0.");
+  }
+  return { retries, timeoutMs, maxRetryWaitMs };
+}
+
+export function resolveApiKey(env = process.env, endpoint = resolveSurface(env)) {
+  const host = new URL(endpoint).hostname;
+  // Uma credencial nativa não deve vazar para o gateway (nem vice-versa).
+  if (host === "api.typesafe.ai") return env.TYPESAFE_API_KEY || env.JEV_API_KEY || null;
+  return env.OPENROUTER_API_KEY || env.SOM_API_KEY || env.JEV_API_KEY || null;
+}
+
+function safeErrorText(value, key) {
+  let text = String(value ?? "");
+  if (key) text = text.split(key).join("[REDACTED]");
+  return text.replace(/sk-or-v1-[A-Za-z0-9_-]+/g, "[REDACTED]").replace(/data:[^\s\"']+;base64,[A-Za-z0-9+/=]+/g, "[MEDIA REDACTED]").replace(/[A-Za-z0-9+/]{200,}={0,2}/g, "[BASE64 REDACTED]").slice(0, 1200);
 }
 
 export function resolveSurface(env = process.env) {
-  if (env.JEV_BASE_URL) return env.JEV_BASE_URL.replace(/\/$/, "");
-  const s = (env.JEV_SURFACE || "decisions").toLowerCase();
+  const override = env.SOM_BASE_URL || env.JEV_BASE_URL;
+  if (override) return override.replace(/\/$/, "");
+  const s = (env.SOM_SURFACE || env.JEV_SURFACE || "decisions").toLowerCase();
   return SURFACES[s] || SURFACES.decisions;
 }
 
@@ -102,7 +127,14 @@ export function post(url, { headers, body, timeoutMs }) {
       timeout: timeoutMs,
     }, (res) => {
       const chunks = [];
-      res.on("data", (c) => chunks.push(c));
+      let received = 0;
+      res.on("error", reject);
+      res.on("aborted", () => reject(new Error("Resposta interrompida.")));
+      res.on("data", (c) => {
+        received += c.length;
+        if (received > MAX_RESPONSE_BYTES) { req.destroy(new Error("Resposta excede 8MiB.")); return; }
+        chunks.push(c);
+      });
       res.on("end", () => {
         resolve({
           statusCode: res.statusCode,
@@ -144,7 +176,7 @@ function sessionFor(url) {
 export function postH2(url, { headers, body, timeoutMs }) {
   return new Promise((resolve, reject) => {
     const { session, reused } = sessionFor(url);
-    const h2headers = { ":method": "POST", ":path": url.pathname };
+    const h2headers = { ":method": "POST", ":path": url.pathname + url.search };
     for (const [k, v] of Object.entries(headers)) {
       const lk = k.toLowerCase();
       if (lk === "connection" || lk === "keep-alive" || lk === "transfer-encoding" || lk === "host") continue;
@@ -159,7 +191,12 @@ export function postH2(url, { headers, body, timeoutMs }) {
       status = Number(h[":status"]) || 0;
       respHeaders = h;
     });
-    req.on("data", (c) => chunks.push(c));
+    let received = 0;
+    req.on("data", (c) => {
+      received += c.length;
+      if (received > MAX_RESPONSE_BYTES) { req.destroy(new Error("Resposta excede 8MiB.")); return; }
+      chunks.push(c);
+    });
     req.on("end", () => {
       clearTimeout(timer);
       resolve({
@@ -190,7 +227,7 @@ export function autoTransport(h2Impl = postH2, h1Impl = post) {
 
 function transportFor(opts, env) {
   if (typeof opts.transport === "function") return opts.transport;
-  const mode = (opts.transportMode || env.JEV_TRANSPORT || "h1").toLowerCase();
+  const mode = (opts.transportMode || env.SOM_TRANSPORT || env.JEV_TRANSPORT || "h1").toLowerCase();
   if (mode === "h2") return postH2;
   if (mode === "auto") return autoTransport();
   return post;
@@ -206,11 +243,9 @@ function transportFor(opts, env) {
  */
 export async function decide(request, opts = {}) {
   const env = opts.env || process.env;
-  const apiKey = opts.apiKey || resolveApiKey(env);
   const endpoint = opts.endpoint || resolveSurface(env);
-  const retries = opts.retries ?? 2;
-  const timeoutMs = opts.timeoutMs ?? 15_000;
-  const maxRetryWaitMs = opts.maxRetryWaitMs ?? 10_000;
+  const apiKey = opts.apiKey ?? resolveApiKey(env, endpoint);
+  const { retries, timeoutMs, maxRetryWaitMs } = validateTransportOptions(opts);
   const transport = transportFor(opts, env);
   const url = new URL(endpoint);
 
@@ -237,7 +272,7 @@ export async function decide(request, opts = {}) {
     try {
       res = await transport(url, { headers, body, timeoutMs });
     } catch (netErr) {
-      lastErr = new JevClientError(`Falha de rede: ${netErr.message}`, { retriable: true, attempts: attempt + 1 });
+      lastErr = new JevClientError(`Falha de rede: ${safeErrorText(netErr.message, apiKey)}`, { retriable: true, attempts: attempt + 1 });
       if (attempt < retries) { await delay(Math.min(backoffMs(attempt), maxRetryWaitMs)); continue; }
       throw lastErr;
     }
@@ -247,30 +282,32 @@ export async function decide(request, opts = {}) {
       try {
         parsed = JSON.parse(res.raw);
       } catch {
-        throw new JevClientError("Resposta 200 mas corpo não é JSON válido.", { status: 200, body: res.raw.slice(0, 500), attempts: attempt + 1 });
+        throw new JevClientError("Resposta 200 mas corpo não é JSON válido.", { status: 200, body: safeErrorText(res.raw.slice(0, 500), apiKey), attempts: attempt + 1 });
       }
-      return {
-        response: parsed,
-        telemetry: {
-          latency_ms: Math.round(performance.now() - t0),
-          attempts: attempt + 1,
-          socket_reused: Boolean(res.socketReused),
-          endpoint,
-          surface: Object.keys(SURFACES).find((k) => SURFACES[k] === endpoint) || "custom",
-          model_requested: request.model,
-          model_resolved: parsed.model ?? null,
-          provider: parsed.provider ?? null,
-          cost_usd: parsed.usage?.cost ?? null,
-          input_tokens: parsed.usage?.input_tokens ?? null,
-          output_tokens: parsed.usage?.output_tokens ?? null,
-        },
-      };
+      if (!parsed?.error) {
+        return {
+          response: parsed,
+          telemetry: {
+            latency_ms: Math.round(performance.now() - t0), attempts: attempt + 1,
+            socket_reused: Boolean(res.socketReused), endpoint,
+            surface: Object.keys(SURFACES).find((k) => SURFACES[k] === endpoint) || "custom",
+            model_requested: request.model, model_resolved: parsed.model ?? null,
+            provider: parsed.provider ?? null, generation_id: res.headers?.["x-generation-id"] ?? parsed.id ?? null,
+            cost_usd: parsed.usage?.cost ?? null, input_tokens: parsed.usage?.input_tokens ?? null,
+            output_tokens: parsed.usage?.output_tokens ?? null,
+          },
+        };
+      }
+      // Um HTTP 200 com error não é uma decisão bem-sucedida.
+      const code = Number(parsed.error.code);
+      res.statusCode = Number.isInteger(code) && code >= 400 && code <= 599 ? code : 502;
     }
 
     // Corpo de erro da API (OpenRouter: {error:{code,message}}; TypeSafe varia)
     let errBody = null;
     try { errBody = JSON.parse(res.raw); } catch { errBody = res.raw.slice(0, 300); }
-    const apiMsg = errBody?.error?.message || errBody?.message || (typeof errBody === "string" ? errBody : "");
+    const apiMsg = safeErrorText(errBody?.error?.message || errBody?.message || (typeof errBody === "string" ? errBody : ""), apiKey);
+    errBody = { error: { message: apiMsg, code: res.statusCode } };
 
     if (RETRYABLE.has(res.statusCode) && attempt < retries) {
       const ra = parseRetryAfter(res.headers && res.headers["retry-after"]);
@@ -295,10 +332,11 @@ function backoffMs(attempt) {
 /** Diagnóstico da conta/chave (GET /api/v1/key do OpenRouter). */
 export async function checkKey(opts = {}) {
   const env = opts.env || process.env;
-  const apiKey = opts.apiKey || resolveApiKey(env);
+  const apiKey = opts.apiKey ?? resolveApiKey(env, "https://openrouter.ai/api/v1/key");
   if (!apiKey) return { ok: false, error: "Sem OPENROUTER_API_KEY no ambiente." };
   const url = new URL(opts.url || "https://openrouter.ai/api/v1/key");
   return new Promise((resolve) => {
+    const reject = (error) => resolve({ ok: false, error: safeErrorText(error.message, apiKey) });
     const req = https.request(url, {
       method: "GET",
       agent: agentFor(url),
@@ -306,7 +344,14 @@ export async function checkKey(opts = {}) {
       timeout: opts.timeoutMs ?? 10_000,
     }, (res) => {
       const chunks = [];
-      res.on("data", (c) => chunks.push(c));
+      let received = 0;
+      res.on("error", reject);
+      res.on("aborted", () => reject(new Error("Resposta interrompida.")));
+      res.on("data", (c) => {
+        received += c.length;
+        if (received > MAX_RESPONSE_BYTES) { req.destroy(new Error("Resposta excede 8MiB.")); return; }
+        chunks.push(c);
+      });
       res.on("end", () => {
         const raw = Buffer.concat(chunks).toString("utf8");
         try {

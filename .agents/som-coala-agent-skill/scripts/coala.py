@@ -2584,6 +2584,12 @@ def run_code_catalog(conn, backend, cfg: dict, root: str, taken: set = None, dry
 
 
 # ------------------------------------------------------------------------ doctor
+# No Windows os modos Unix não existem: o Python só mapeia o bit de somente-leitura (pastas dão sempre
+# 0o777 e ficheiros 0o666) e o `chmod 700/600` não tem efeito — quem protege a base é a ACL herdada do
+# perfil do utilizador. Medir modos lá daria um WARN permanente que nenhuma Solução apaga.
+POSIX_MODES = os.name != "nt"
+
+
 def _mode(path: str):
     try:
         return stat.S_IMODE(os.stat(path).st_mode)
@@ -2627,17 +2633,21 @@ def doctor_report(path: str, how: str, skill: str = None, deep: bool = False,
         return checks
 
     parent = os.path.dirname(path)
-    dm = _mode(parent)
-    ok = dm is not None and dm & 0o077 == 0
-    add("OK" if ok else "WARN", "permissões da pasta", oct(dm) if dm is not None else "?",
-        None if ok else f"chmod 700 {parent}")
-    for suffix in ("", "-wal", "-shm"):
-        p = path + suffix
-        if os.path.exists(p):
-            fm = _mode(p)
-            ok = fm is not None and fm & 0o077 == 0
-            add("OK" if ok else "WARN", f"permissões {os.path.basename(p)}", oct(fm),
-                None if ok else f"chmod 600 {p}")
+    if not POSIX_MODES:
+        add("INFO", "permissões", "Windows: modos Unix não se aplicam — a base fica protegida pela ACL "
+            "do perfil do utilizador")
+    else:
+        dm = _mode(parent)
+        ok = dm is not None and dm & 0o077 == 0
+        add("OK" if ok else "WARN", "permissões da pasta", oct(dm) if dm is not None else "?",
+            None if ok else f"chmod 700 {parent}")
+        for suffix in ("", "-wal", "-shm"):
+            p = path + suffix
+            if os.path.exists(p):
+                fm = _mode(p)
+                ok = fm is not None and fm & 0o077 == 0
+                add("OK" if ok else "WARN", f"permissões {os.path.basename(p)}", oct(fm),
+                    None if ok else f"chmod 600 {p}")
 
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
@@ -3181,7 +3191,10 @@ def import_jsonl(dest, backend, items: list, edges: list, label: str, add_tags=N
     """
     Importa os itens de load_jsonl numa ligação aberta, SEM commit (quem chama decide — o --dry-run corre
     isto numa cópia em memória e descarta):
-      1. id por conteúdo já existe na base, ou repete-se no ficheiro → já presente, nada muda;
+      1. id por conteúdo já existe na base, ou repete-se no ficheiro → já presente, nada muda; idem para a
+         cópia MASCARADA (o `export` redigiu um valor com aspeto de segredo e o id foi recalculado) de um
+         registo que a base já tem com o id ORIGINAL — inseri-la faria a cópia suplantar a original
+         (mesma chave e data, id maior ganha) e trocaria o texto bom pelo redigido;
       2. registo novo entra com o id, o tipo, a origem, a chave, as datas, a fonte, as tags (+ --add-tags) e a
          proveniência da linha (+ nota `Importado de …`), indexado (FTS5/vetores) e ligado às suas entidades;
       3. a supersessão é refeita pelas relações de id por conteúdo (`supersedes` dos registos canónicos,
@@ -3192,11 +3205,16 @@ def import_jsonl(dest, backend, items: list, edges: list, label: str, add_tags=N
     ts = now_iso()
     extra = merge_tags(add_tags)
     res = {"from": label, "format": "jsonl", "records": len(items), "imported": 0, "already_present": 0,
-           "duplicates_in_file": 0, "cids_recomputed": 0, "superseded": 0, "relations_missing": 0,
-           "conflicts_resolved": 0, "entities_new": 0, "edges_new": 0}
+           "duplicates_in_file": 0, "cids_recomputed": 0, "masked_copies_skipped": 0, "superseded": 0,
+           "relations_missing": 0, "conflicts_resolved": 0, "entities_new": 0, "edges_new": 0}
     n_ent0 = dest.execute("SELECT COUNT(*) FROM entity_nodes").fetchone()[0]
     seen = set()
     for it in items:
+        orig = it.get("remap_from")
+        if orig and dest.execute("SELECT 1 FROM memory_entries WHERE content_id=? LIMIT 1", (orig,)).fetchone():
+            it["cid"] = orig                           # a base tem o original: a linha é ELE, não um registo novo
+            del it["remap_from"]                       # (e as relações religam-se contra o id original)
+            res["masked_copies_skipped"] += 1
         cid = it["cid"]
         if cid in seen:
             res["duplicates_in_file"] += 1
@@ -4479,7 +4497,10 @@ def cmd_import_jsonl(args) -> int:
     else:
         emit(f"{'DRY-RUN: ' if args.dry_run else 'OK: '}import de {label} → {path}\n"
              f"  registos={res['records']} · importados={res['imported']} · já presentes={res['already_present']}"
-             f" · repetidos no ficheiro={res['duplicates_in_file']}\n"
+             f" · repetidos no ficheiro={res['duplicates_in_file']}"
+             + (f" · cópias mascaradas de registos já presentes={res['masked_copies_skipped']}"
+                if res["masked_copies_skipped"] else "")
+             + "\n"
              f"  supersessões refeitas={res['superseded']} · relações sem par={res['relations_missing']}"
              f" · conflitos de chave resolvidos={res['conflicts_resolved']}"
              f" · entidades novas={res['entities_new']} · arestas novas={res['edges_new']}")
@@ -5394,7 +5415,8 @@ def run_selftest() -> int:
             json.dump({"skill": os.path.basename(skill)}, fh)
         p1, h1, _ = resolve_db("/x/y.sqlite", env={DB_ENV: "/z.sqlite"})
         p2, h2, _ = resolve_db(None, env={DB_ENV: "/z.sqlite"})
-        check("19 precedência --db > COALA_DB", p1 == "/x/y.sqlite" and p2 == "/z.sqlite" and "COALA_DB" in h2)
+        check("19 precedência --db > COALA_DB",          # abspath: no Windows "/x/y.sqlite" vira C:\x\y.sqlite
+              p1 == os.path.abspath("/x/y.sqlite") and p2 == os.path.abspath("/z.sqlite") and "COALA_DB" in h2)
         p3, h3, sk3 = resolve_db(None, env={}, engine_file=os.path.join(skill, "scripts", "coala.py"))
         check("20 motor vendorizado usa a memória da sua skill",
               p3 == os.path.join(skill, "memory", "coala.sqlite") and sk3 == skill, p3)
@@ -5443,7 +5465,8 @@ def run_selftest() -> int:
         bk, res_bk, n_bk = backup_db(fake_db)
         n_now = conn.execute("SELECT COUNT(*) FROM memory_entries").fetchone()[0]
         check("26 backup consistente (0600, quick_check ok, mesma contagem)",
-              res_bk == "ok" and n_bk == n_now and _mode(bk) == 0o600, f"{res_bk} {n_bk}/{n_now}")
+              res_bk == "ok" and n_bk == n_now and (_mode(bk) == 0o600 or not POSIX_MODES),
+              f"{res_bk} {n_bk}/{n_now}")
         insert_entry(conn, backend, "episodic", "registo depois do backup", "agent")
         conn.commit()
         try:
@@ -5661,6 +5684,20 @@ def run_selftest() -> int:
               valid and parsed.get("truncated") is True
               and len(buf.getvalue().encode("utf-8")) <= MAX_OUTPUT_BYTES,
               f"bytes={len(buf.getvalue().encode('utf-8'))}")
+
+        # 81. o MESMO dump mascarado de volta à base de ORIGEM: nada entra e a original continua ativa
+        rconn, _, rbackend = connect_path(sdb)
+        items_r, edges_r, label_r = load_jsonl(dump)
+        imp_r = import_jsonl(rconn, rbackend, items_r, edges_r, label_r)
+        rows_r = [(r[0], r[1]) for r in
+                  rconn.execute("SELECT content, superseded_by FROM memory_entries ORDER BY id").fetchall()]
+        rconn.commit()
+        rconn.close()
+        check("81 reimportar o dump mascarado na base de origem não cria cópia e a original fica ativa",
+              imp_r["imported"] == 0 and imp_r["masked_copies_skipped"] == 2 and imp_r["already_present"] == 2
+              and len(rows_r) == 2
+              and [c for c, sb in rows_r if sb is None] == ["Rotação de chave sk-secret1234567890abcd v2"],
+              f"{imp_r} · rows={[(c[-24:], sb) for c, sb in rows_r]}")
 
         # 44–58. esquema v3: ids por conteúdo, import --jsonl, forget, LIKE com ESCAPE, migração v2→v3
         _selftest_v3(tmp, check, run_cmd)

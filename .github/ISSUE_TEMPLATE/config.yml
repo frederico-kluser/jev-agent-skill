@@ -1,0 +1,14 @@
+# Issue template configuration for jev-agent-skill (frederico-kluser/jev-agent-skill).
+# Blank issues are disabled: every report must use a template, and security
+# reports must go through the private channel defined in SECURITY.md.
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/frederico-kluser/jev-agent-skill/security/advisories/new
+    about: Please report security vulnerabilities privately (Private Vulnerability Reporting). Never file them as public issues.
+  - name: Security policy (SECURITY.md)
+    url: https://github.com/frederico-kluser/jev-agent-skill/security/policy
+    about: Supported versions, disclosure process, and response SLA.
+  - name: Questions and discussion
+    url: https://github.com/frederico-kluser/jev-agent-skill/discussions
+    about: Ask usage questions and discuss ideas before opening a feature request.

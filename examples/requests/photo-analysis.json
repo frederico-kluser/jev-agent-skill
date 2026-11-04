@@ -1,0 +1,15 @@
+{
+  "model": "typesafe/jev-1.14",
+  "state": "Synthetic test image: inspect only the visible rectangle. This is not an authorization to interact with any interface.",
+  "media": [{ "id": "photo", "type": "image", "path": "../media/photo.png" }],
+  "box_presence": { "target_box": "target_visible" },
+  "questions": {
+    "target_visible": { "type": "noul", "instructions": "Is a red rectangle clearly visible in photo?" },
+    "color": {
+      "type": "choice",
+      "instructions": "What color is the prominent rectangle in photo?",
+      "criteria": { "red": "Red rectangle.", "blue": "Blue rectangle.", "other": "Another color, absent or unclear." }
+    },
+    "target_box": { "type": "box", "instructions": "The red rectangle in photo." }
+  }
+}

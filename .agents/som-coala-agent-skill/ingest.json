@@ -1,5 +1,5 @@
 {
-  "_doc": "Memória interna do repo jev-agent-skill para `coala.py ingest`. LEARNINGS.md (episódica) + skill/references (semântica).",
+  "_doc": "Memória do repo som-agent-skill. key_prefix jev é histórico e permanece estável para preservar supersessão; pesquisa/contratos derivados da web mantêm origem untrusted.",
   "version": 1,
   "key_prefix": "jev",
   "path_prefix": "",
@@ -20,6 +20,22 @@
       "type": "semantic",
       "origin": "agent",
       "tags": "skill,contrato"
+    },
+    {
+      "name": "pesquisas-web",
+      "include": ["references/pesquisa*.md"],
+      "mode": "markdown",
+      "type": "semantic",
+      "origin": "untrusted",
+      "tags": "pesquisa,web,{stem}"
+    },
+    {
+      "name": "contratos-web",
+      "include": ["references/api.md", "references/multimodal.md"],
+      "mode": "markdown",
+      "type": "semantic",
+      "origin": "untrusted",
+      "tags": "contrato,web,{stem}"
     },
     {
       "name": "referencias",

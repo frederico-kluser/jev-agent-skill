@@ -1,5 +1,12 @@
 # TypeSafe "Jev" System One Decision Model — Verified API Research Report
 
+> **ARQUIVO HISTÓRICO, 2026-09-24.** Não usar afirmações de «text only», aliases,
+> rate limits ou contagem de primitivas deste snapshot como estado atual.
+> O suporte multimodal/SOM e as divergências verificadas em 2026-11-04 estão em
+> [multimodal.md](multimodal.md), [api.md](api.md) e
+> [pesquisa-multimodal.md](pesquisa-multimodal.md). Preservado para proveniência,
+> não como instrução operacional vigente.
+
 Sources (all fetched live): `docs.typesafe.ai/api.md`, `/primitives.md`, `/primitives/noul.md`, `/primitives/choice.md`, `/primitives/score.md`, `/primitives/advanced.md`, `/concepts/state.md`, `/models.md`, `/model-jaggedness/jev-1.13.md`; `openrouter.ai/docs/guides/community/typesafe-sdk.md`, `/jev-tutorial.md`, `/docs/api/api-reference/alphadecisions/submit-a-decisions-request.md`, `/docs/api/api-reference/systemone/submit-a-system-one-request.md` (OpenAPI schemas).
 
 ## 1. Request schema

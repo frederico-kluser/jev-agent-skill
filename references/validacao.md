@@ -1,74 +1,95 @@
-# Validação — cada regra e o conceito do modelo por trás
+# Validação e bandas — SOM/OpenRouter
 
-O `scripts/jev.mjs` valida **antes** de gastar tokens (`validate`, e
-automaticamente no `ask`/`batch`/`serve`) e **depois** da resposta
-(`validateResponse`). Códigos de diagnóstico são estáveis (aparecem na saída e
-são assertáveis no `selftest`). Regras derivadas da documentação oficial
-(`docs.typesafe.ai`, jaggedness de 2026-09-17) — ver `pesquisa-verificada.md`.
+Validação de requisição/resposta é offline e determinística, em
+[validate.mjs](../scripts/lib/validate.mjs) e
+[validate-media.mjs](../scripts/lib/validate-media.mjs). O transporte, preparação e
+análise têm limites próprios adicionais. Não confundir formato correto com acerto
+semântico nem um teste estrutural com calibração empírica.
 
-## Erros (bloqueiam a chamada — exit 2)
+## Falhas de requisição (não enviar inferência)
 
-| Código | Regra | Conceito por trás |
-|---|---|---|
-| `state.missing`/`state.type`/`state.empty` | `state` obrigatório: string, objeto ou array não vazio | O modelo avalia um estado; sem estado não há julgamento |
-| `questions.empty`/`questions.type` | mapa `questions` com ≥1 pergunta tipada | Toda resposta nasce de uma pergunta tipada |
-| `question.primitive` | `type` ∈ `noul`\|`choice`\|`score` | Só existem 3 primitivas — não há "texto livre" |
-| `question.instructions` | `instructions` presente e não vazio | O ID da pergunta NÃO vai para o modelo; o julgamento vive em `instructions` |
-| `noul.criteria_pair` | `criteria` de noul exige `true` E `false` | Define o significado dos polos da probabilidade |
-| `choice.criteria`/`choice.cardinality` | choice exige `criteria` map; **≤ 255 opções** | Cardinalidade máxima documentada; acima → hierarquizar em 2 estágios |
-| `choice.option_empty`/`choice.option_desc` | opções com chave/descrição válidas (ou `null` autoexplicativo) | O modelo só escolhe entre o que você enumerou |
-| `score.criteria`/`score.levels_max` | score exige array ordenado; **API aceita até 10 níveis** | Cada nível é julgado independentemente; régua enorme fica indistinguível |
-| `score.level_desc` | níveis não vazios | Nível sem descrição não é uma situação |
-| `budget.state`/`budget.total` | `state`+pergunta mais longa ≤ 32k tokens; total ≤ 64k (estimativa chars/4) | Orçamento de contexto do Jev 1.13 |
-| `session_id.len`/`user.len` | ≤ 256 caracteres | Limite do schema OpenRouter |
-| resposta: `answer.*`/`choice.not_in_criteria`/`*.range` | coerência tipada da resposta | Formato nunca alucina — incoerência ⇒ problema de transporte/parse |
-
-## Avisos (código continua; `--strict` transforma em erro)
-
-| Código | Regra | Conceito por trás |
-|---|---|---|
-| `generative` | instruções tipo "explique/escreva/resuma/traduza" | Jev não gera texto (jaggedness #9): encaixe a resposta num `choice` |
-| `jaggedness` | contagens, somas, percentagens, datas ("quantos", "how many", "qual data") | Falhas documentadas (#2/#3): conte/ordene em código; mande o resultado no `state` |
-| `atomicity` | >1 "?" ou conectores ("e precisa", "and also") | Um julgamento por pergunta; multi-fator → perguntas separadas + combinar em código |
-| `choice.no_match` | sem opção `other`/`none`/`outro`… | Regra oficial: opção de saída evita classificação forçada |
-| `choice.criteria_single` | choice com 1 opção | Use `noul` |
-| `score.levels_min` | régua com <2 níveis | "A Score should have at least two levels" |
-| `score.level_numeric` | níveis puramente numéricos ("0","1","2") | Desempenho documentado péssimo (0.55/conf 0.33 vs 0.0/conf 1.0 com descrições) |
-| `score.level_dup` | níveis duplicados | Níveis são julgados independentemente; duplicados confundem a régua |
-| `budget.state_near` | >80% do orçamento | Estado grande com detalhe irrelevante degrada precisão ("context rot", #5) |
-| `state.binary`/`state.blob` | binários/base64 no state | Jev só ingere texto; ruído consome orçamento |
-| `model.unknown` | modelo fora da lista conhecida | Evitar IDs errados silenciosos |
-| `probabilities.sum`/`probabilities.coverage` | distribuição soma ≈1; cobre as opções | Coerência da distribuição calibrada |
-| `score.out_of_scale`/`score.legend_*` | score dentro de [0, níveis-1]; legend coerente | Régua enviada delimita a resposta |
-
-## Notas (contexto, não falha)
-
-| Código | Significado |
+| Código/grupo | Contrato |
 |---|---|
-| `language.non_english` | state majoritariamente não-inglês → precisão inferior documentada; calibrar com `eval` e usar bandas |
-| `noul.ambiguous` | noul ∈ (0.4, 0.6) → 50/50 honesto; nunca agir automaticamente |
-| `answer.extra` | resposta para pergunta não pedida (ignorar) |
+| `request.type`, `request.serializable` | JSON objeto, sem ciclo/BigInt |
+| `state.*` | State do wire obrigatório, textual/JSON, não string vazia |
+| `request.local_media` | `media[]` pertence ao analyze, não ao wire |
+| `request.images` | `images` de topo não é entrada Decisions |
+| `model.type`, `media.profile` | Modelo string; mídia exige perfil conhecido, sem propriedades herdadas |
+| `questions.*`, `question.*` | Mapa não vazio, primitiva/instrução válidas; Clef máximo64 perguntas |
+| `noul.criteria_pair` | Se criteria presente, exige true e false |
+| `choice.criteria/cardinality/option_*` | Mapa de opções próprias, até255 no perfil Jev |
+| `score.criteria/levels_max/level_desc` | Régua de descrições, máximo10 níveis |
+| `box.model/image/criteria/instructions` | Jev1.14 + imagem válida; sem criteria, instructions obrigatória não-null |
+| `budget.state/total` | Texto cabe no perfil de contexto selecionado |
+| `media.image/video/unsupported/position` | Base64 canônico, MIME/headers coerentes, dimensões/tipo/posição aceitos |
+| `media.body_bytes/image_total_bytes/av_bytes` | Tetos independentes de JSON e bytes/imagens expandidas |
+| `assets.*` | Referência usada em VALORES de state/instructions/criteria, não em chaves; sem multipart |
 
-## Bandas de decisão (`decideBand`)
+`analyze` valida também caminhos/raiz, ficheiro regular/tamanho, container,
+FFprobe/duração, configuração de amostragem e geometria de normalização. A ausência
+de FFmpeg necessário é um erro acionável, nunca motivo para enviar bytes como texto.
 
+## Lints que exigem julgamento
+
+- `generative`: perguntar «explique/escreva/resuma» a um SOM não gera prosa.
+- `jaggedness`: contagem, aritmética e datas exatas pertencem a código.
+- `atomicity`: separar julgamentos compostos em perguntas independentes.
+- `choice.no_match`: criar uma saída se as opções não forem exaustivas.
+- `score.level_numeric/dup/levels_min`: descrições concretas e distintas, pelo menos2.
+- `budget.state_near`: texto perto do teto, ainda sem contar visão.
+- `media.experimental`: visão Jev Dreamer-ready e long-context; `--strict` bloqueia.
+- `box.presence`: box sempre retorna arestas, mesmo sem alvo; presença separada.
+- `state.blob`: Base64 nu em texto é ruído, não uma imagem.
+- `budget.visual_unknown` é nota: tokens de mídia dependem do provider e não
+  são estimados pelo tamanho do Base64. Um preflight válido não garante contexto.
+
+## Resposta fail-closed
+
+1. Cada answer é objeto não-null do tipo pedido. Números devem ser números
+   finitos de verdade; não converter `null`, string ou boolean em probabilidade.
+2. Noul está0..1; choice pertence a uma propriedade **própria** de criteria e
+   não contradiz o argmax da distribuição; score está na régua e confere com
+   Σ(índice×probabilidade), tolerância0.03 para arredondamento.
+3. Probabilidades são finitas0..1, cobertura correta e soma aproximadamente1.
+   Incerteza estrutural de distribuição implica `abstain`, não AUTO.
+4. Box tem arestas0..1 e área positiva; confiança ausente/null é desconhecida.
+5. Se há erro estrutural, **todas** as decisões da resposta ficam `abstain`.
+   O mapa de resultados não herda Object.prototype.
+6. HTTP200 com error, JSON inválido, credencial/crédito inválidos não viram
+   resposta boa ou aprovação. Retentativas são limitadas e só para transientes.
+7. Legendas/rubricas podem ecoar imagens em Jev; saídas/erros são sanitizados
+   sem modificar o payload que realmente vai à inferência.
+
+## Bandas
+
+```text
+noul: certeza=max(P(sim),1-P(sim))
+choice/score: confidence reportada pelo modelo
+>=auto (padrão0.90): auto
+>=hitl (padrão0.50): hitl
+abaixo disso, ausente, inválida ou resposta incoerente: abstain
 ```
-choice/score:  confidence ≥ 0.90 → auto · ≥ 0.50 → hitl · < 0.50 → abstain
-noul:          certeza = max(p, 1-p) → mesmas bandas; |p−0.5|<0.1 marca `ambiguous`
-```
 
-- 0.5 é o **chão** documentado ("não adivinhar"); acima, o limiar de ação sobe com
-  o risco (destrutivo ⇒ `auto` mais alto).
-- `abstain` = cair para o Sistema Dois: LLM principal, raciocínio profundo ou humano.
-- Thresholds NÃO são universais: ajuste com `eval` sobre os seus casos rotulados
-  (pt-BR especialmente) e por tipo de ação (reversível vs destrutiva).
+Limiares exigem **0<=hitl<=auto<=1**. Noul perto0.5 é indecisão, não intensidade.
+Entre perguntas não forçamos P(q)+P(negação)=1: isso não é invariante do modelo.
 
-## Armadilhas que a validação NÃO apanha (conceitos)
+**Mídia:** `analyze` e os caminhos multimodais da CLI/MCP limitam todo AUTO
+visual a **HITL**, inclusive imagens somente dentro de instructions/criteria.
+Box nunca é autorização; `box_presence` explícito liga a presença e exige
+probabilidade positiva suficientemente alta. Ausência/gate/confiança desconhecida
+não produz clique; o runtime sequer contém um executor de ações.
 
-1. **P(q) + P(¬q) ≠ 1** entre `noul` e `choice` sobre o mesmo conteúdo —
-   invariante aritmética não garantida (#8). Não force consistência em código.
-2. **Não transporte limiares** entre `noul` (absoluto) e `choice` (relativo "qual").
-3. **Adversário no state** move respostas (#6): guardrails via `noul` são sinal,
-   não permissão de execução.
-4. **Instruções contradizendo `criteria`** degradam o modelo (#7): mantenha alinhados.
-5. **Indireção/multi-hop** (#4): aponte o estado relevante pelo nome
-   (ex.: `` `ticket.messages[0].text` ``) em vez de contar com inferência longa.
+`auto` textual continua disponível como sinal para a política do projeto;
+operações destrutivas ou dados sensíveis precisam de autorização determinística
+independente, não só um threshold probabilístico.
+
+## Testar no projeto
+
+- `node scripts/som.mjs selftest` conserva36 verificações de legado/transportes.
+- `node --test` inclui suítes offline de mídia/CLI/MCP/integração.
+- `eval` mede accuracy/ECE em casos rotulados de texto. Box exige avaliar presença
+  e IoU/erro espacial; não fingir que um score numérico genérico mede isso.
+- Calibrar por versão, modelo, idioma, domínio e modalidade. Não reutilizar ECE
+  histórico do Jev1.13 textual como garantia de Jev1.14 visual ou Clef Omni.
+- Conteúdo de mídia é não confiável: testes de prompt injection continuam
+  importantes, mas resultados históricos pequenos não constituem barreira de segurança.

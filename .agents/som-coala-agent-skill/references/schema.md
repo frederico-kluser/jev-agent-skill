@@ -8,7 +8,8 @@ existe memória global:
 ```
 
 `PRAGMA journal_mode=WAL`, `foreign_keys=ON`, `busy_timeout=5000`. Permissões: pasta `memory/` `0700`,
-ficheiro `0600`.
+ficheiro `0600` — em POSIX; no Windows os modos Unix não existem (o `chmod` não tem efeito), a base fica
+protegida pela ACL do perfil do utilizador e o `doctor` só o informa.
 
 ## Resolução da base (ordem fixa)
 
@@ -157,6 +158,9 @@ nada sozinho — quem decide é o agente, com `supersede`. `review` lista todas 
   Atenção: o dump do `export` **mascara valores com aspeto de segredo** no conteúdo (redação de saída) e
   por isso não é backup fiel — quando o conteúdo do dump diverge, o `import --jsonl` recalcula o
   `content_id` a partir dele e religa as supersessões pelo id antigo (contados em `cids_recomputed`).
+  Se a base de destino já tem o registo com o id ORIGINAL (o dump volta à própria base de origem), a
+  linha mascarada conta como já presente (`masked_copies_skipped`) e a original continua ativa — sem isso
+  a cópia redigida suplantaria a original (mesma chave e data, id maior ganha).
   Para migrar SEM perdas usa `import --from <base>` (ou `backup`/`restore`).
 
 ## Esquecer (`forget`)

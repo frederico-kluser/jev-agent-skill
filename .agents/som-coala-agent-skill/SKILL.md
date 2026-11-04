@@ -1,21 +1,21 @@
 ---
-name: jev-coala-agent-skill
-description: "Memória e catálogo CoALA/SQLite LOCAIS do projeto jev — o que já se decidiu, como se faz aqui e ONDE está cada coisa: notas (decisões, factos, procedimentos), documentos ingeridos e mapa do código (símbolos com ficheiro:linha), puxados por níveis (map → recall → search/symbols → get) em vez de despejados no contexto. Use SEMPRE que trabalhar em jev: no início de uma tarefa não trivial para recuperar contexto, quando precisar de 'o que sabemos sobre…', 'porque decidimos…', 'como se faz isto aqui', 'onde está definido…', 'que ficheiros usam…', e no fim para registar o que for durável e verificado. Não usar para segredos nem para estado volátil da tarefa."
+name: som-coala-agent-skill
+description: "Memória e catálogo CoALA/SQLite LOCAIS do projeto som-agent-skill — o que já se decidiu, como se faz aqui e ONDE está cada coisa: notas (decisões, factos, procedimentos), documentos ingeridos e mapa do código (símbolos com ficheiro:linha), puxados por níveis (map → recall → search/symbols → get) em vez de despejados no contexto. Use SEMPRE que trabalhar em som-agent-skill: no início de uma tarefa não trivial para recuperar contexto, quando precisar de 'o que sabemos sobre…', 'porque decidimos…', 'como se faz isto aqui', 'onde está definido…', 'que ficheiros usam…', e no fim para registar o que for durável e verificado. Não usar para segredos nem para estado volátil da tarefa."
 metadata:
   type: coala-project-memory
   technique: coala
-  project: jev
+  project: som-agent-skill
   engine: "coala.py v3.0.0 (Python 3 stdlib)"
   managed-by: coala-agent-skill
 ---
 
-# Memória e catálogo CoALA — jev
+# Memória e catálogo CoALA — som-agent-skill
 
 Tudo o que este projeto sabe sobre si próprio vive em `memory/coala.sqlite` (local, só deste projeto) e
 é consultado por um comando — nunca abrindo a base nem um dump:
 
 ```bash
-COALA="python3 .agents/jev-coala-agent-skill/scripts/coala.py"   # a partir da raiz do projeto
+COALA="python3 .agents/som-coala-agent-skill/scripts/coala.py"   # a partir da raiz do projeto
 ```
 
 **Contrato:** a memória é o ponto de ENTRADA (o que foi decidido, onde olhar); o código e o estado
@@ -73,6 +73,8 @@ Fontes em `ingest.json` (é teu: o instalador nunca o reescreve):
 
 - `learnings` — `LEARNINGS.md` → markdown · episodic · origem `agent` · tags `learnings,evolucao,historico`
 - `skill` — `SKILL.md` → markdown · semantic · origem `agent` · tags `skill,contrato`
+- `pesquisas-web` — `references/pesquisa*.md` → markdown · semantic · origem `untrusted` · tags `pesquisa,web,{stem}`
+- `contratos-web` — `references/api.md`, `references/multimodal.md` → markdown · semantic · origem `untrusted` · tags `contrato,web,{stem}`
 - `referencias` — `references/**/*.md` → markdown · semantic · origem `agent` · tags `referencia,{stem}`
 - `readme` — `README.md` → markdown · semantic · origem `agent` · tags `docs,readme`
 - chaves de supersessão: `jev/<ficheiro>#<segmento>` (estáveis → re-ingestão idempotente)

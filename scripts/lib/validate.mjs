@@ -16,6 +16,9 @@
 //     documentadas — pertencem a código determinístico, não ao Jev.
 //   * Inglês é a língua primária; pt-BR funciona mas exige calibração própria.
 
+import { DEFAULT_MODEL, profileFor } from "./capabilities.mjs";
+import { validateRequestMedia } from "./validate-media.mjs";
+
 export const LIMITS = {
   REQUEST_TOTAL_TOKENS: 64_000,        // state + todas as perguntas combinadas
   STATE_PLUS_LONGEST_Q_TOKENS: 32_000, // state + a pergunta mais longa
@@ -27,10 +30,11 @@ export const LIMITS = {
   USER_MAX_LEN: 256,
 };
 
-export const QUESTION_TYPES = Object.freeze(["noul", "choice", "score"]);
+export const QUESTION_TYPES = Object.freeze(["noul", "choice", "score", "box"]);
 export const MODEL_IDS_KNOWN = Object.freeze([
-  "typesafe/jev-1.13", "~typesafe/jev-latest", "typesafe/jev-1.13.0",
-  "jev-1.13", "jev-1.13.0", "jev-latest", "jev-preview",
+  "typesafe/jev-1.13", "typesafe/jev-1.14", "~typesafe/jev-latest", "typesafe/jev-1.13.0",
+  "jev-1.13", "jev-1.13.0", "jev-1.14", "jev-1.14.0", "jev-latest", "jev-preview",
+  "cloudflare/clef-omni",
 ]);
 
 // ---------------------------------------------------------------------------
@@ -138,11 +142,14 @@ export function validateRequest(req, opts = {}) {
     report.err("state.empty", "`state` vazio — nada para avaliar.", "state");
   }
 
+  if (req.media !== undefined) report.err("request.local_media", "media[] de ficheiros é contrato do analyze, não payload Decisions. Use analyze --dry-run para preparar.", "media");
+  if (req.images !== undefined) report.err("request.images", "Campo images de topo não é entrada Decisions. Use media[] no analyze ou image_url no state.", "images");
   // --- model ---------------------------------------------------------------
+  if ("model" in req && (typeof req.model !== "string" || !req.model.trim())) report.err("model.type", "model deve ser string não vazia.", "model");
   if (!("model" in req) || typeof req.model !== "string" || req.model.trim() === "") {
     report.warn("model.missing",
-      "Sem `model`; o padrão da skill é `typesafe/jev-1.13` (fixe a versão se calibrar thresholds contra ela).", "model");
-  } else if (!MODEL_IDS_KNOWN.includes(req.model) && !opts.allowUnknownModel) {
+      `Sem \`model\`; o padrão da skill é \`${DEFAULT_MODEL}\` (fixe a versão se calibrar thresholds contra ela).`, "model");
+  } else if (!profileFor(req.model) && !MODEL_IDS_KNOWN.includes(req.model) && !opts.allowUnknownModel) {
     report.warn("model.unknown",
       `Modelo "${req.model}" fora da lista conhecida (${MODEL_IDS_KNOWN.join(", ")}). Confirme o ID no OpenRouter (GET /api/v1/models?q=jev).`, "model");
   }
@@ -154,6 +161,14 @@ export function validateRequest(req, opts = {}) {
   if (typeof req.user === "string" && req.user.length > LIMITS.USER_MAX_LEN) {
     report.err("user.len", `\`user\` deve ter no máximo ${LIMITS.USER_MAX_LEN} caracteres.`, "user");
   }
+
+  const media = validateRequestMedia(req, report);
+  if (report.errors.some((e) => e.code === "request.serializable")) return { ...report.toJSON(), budget };
+  const totalLimit = media.totalLimit ?? LIMITS.REQUEST_TOTAL_TOKENS;
+  const questionLimit = media.questionLimit ?? LIMITS.STATE_PLUS_LONGEST_Q_TOKENS;
+  budget.limits = { total: totalLimit, state_plus_longest_q: questionLimit };
+  budget.body_bytes = media.bodyBytes;
+  budget.media_tokens = media.hasMedia ? "provider-dependent; not estimated" : 0;
 
   // --- questions -----------------------------------------------------------
   const questions = req.questions;
@@ -208,6 +223,17 @@ export function validateRequest(req, opts = {}) {
         "`instructions` vazio — é o julgamento que o modelo executa.", where);
     } else {
       lintInstructions(report, qid, q.type, q.instructions);
+    }
+
+    if (media.profile && !media.profile.primitives.includes(q.type)) {
+      report.err("question.model_primitive", `${req.model} não suporta ${q.type}; box exige Jev 1.14.`, where);
+    }
+    if (q.type === "box") {
+      if (q.instructions == null) report.err("box.instructions", "instructions de box é obrigatória e não-null na Decisions API.", where);
+      if (!media.profile?.primitives.includes("box")) report.err("box.model", "Fixe typesafe/jev-1.14 para box; não adivinhamos a versão de um alias.", where);
+      if ("criteria" in q) report.err("box.criteria", "box não aceita criteria; descreva o alvo em instructions.", where);
+      if (!media.images) report.err("box.image", "box exige uma imagem PNG/JPEG válida no mesmo pedido.", where);
+      if (!Object.values(questions).some((candidate) => candidate?.type === "noul")) report.warn("box.presence", "box devolve coordenadas mesmo sem alvo. Inclua um noul de presença independente; localização nunca autoriza uma ação.", where);
     }
 
     if (q.type === "noul") {
@@ -299,12 +325,12 @@ export function validateRequest(req, opts = {}) {
     }
   }
 
-  // --- orçamento de tokens (64k total; state + pergunta mais longa ≤ 32k) ---
-  budget.state_tokens = estimateTokens(req.state ?? "");
+  // Estimativa só do TEXTO: base64 não representa tokens visuais.
+  budget.state_tokens = estimateTokens(media.stateForTokens ?? "");
   let longestQ = 0;
   let allQ = 0;
   for (const qid of qids) {
-    const t = estimateTokens(questions[qid]);
+    const t = estimateTokens(media.questionsForTokens?.[qid]);
     allQ += t;
     longestQ = Math.max(longestQ, t);
   }
@@ -312,24 +338,18 @@ export function validateRequest(req, opts = {}) {
   budget.longest_question_tokens = longestQ;
   budget.total_tokens = budget.state_tokens + allQ;
 
-  if (budget.state_tokens + longestQ > LIMITS.STATE_PLUS_LONGEST_Q_TOKENS) {
-    report.err("budget.state",
-      `state + pergunta mais longa ≈ ${budget.state_tokens + longestQ} tokens estimados > limite de ${LIMITS.STATE_PLUS_LONGEST_Q_TOKENS}. Higienize o state (veja references/validacao.md).`,
-      "state");
-  } else if (budget.state_tokens + longestQ > LIMITS.STATE_PLUS_LONGEST_Q_TOKENS * 0.8) {
-    report.warn("budget.state_near",
-      `state + pergunta mais longa ≈ ${budget.state_tokens + longestQ} tokens — perto do limite de ${LIMITS.STATE_PLUS_LONGEST_Q_TOKENS}. Contexto enorme degrada a precisão (jaggedness vs. tamanho do state).`,
-      "state");
+  if (budget.state_tokens + longestQ > questionLimit) {
+    report.err("budget.state", `state + pergunta mais longa ≈ ${budget.state_tokens + longestQ} tokens textuais > ${questionLimit}. Higienize o state.`, "state");
+  } else if (budget.state_tokens + longestQ > questionLimit * 0.8) {
+    report.warn("budget.state_near", `Texto perto do limite ${questionLimit}; mídias consomem tokens adicionais desconhecidos.`, "state");
   }
-  if (budget.total_tokens > LIMITS.REQUEST_TOTAL_TOKENS) {
-    report.err("budget.total",
-      `Pedido total ≈ ${budget.total_tokens} tokens estimados > limite de ${LIMITS.REQUEST_TOTAL_TOKENS}. Divida o state ou reduza perguntas.`,
-      "questions");
+  if (budget.total_tokens > totalLimit) {
+    report.err("budget.total", `Pedido ≈ ${budget.total_tokens} tokens textuais > ${totalLimit}. Divida o state ou reduza perguntas.`, "questions");
   }
 
   // --- higiene do state ----------------------------------------------------
   if (typeof req.state === "string" && /[\u0000-\u0008]/.test(req.state)) {
-    report.warn("state.binary", "O `state` contém bytes de controlo/binários — converta não-texto para texto ANTES de enviar (Jev só ingere texto).", "state");
+    report.warn("state.binary", "O `state` contém bytes de controlo. Use analyze para mídia real, não bytes misturados em texto.", "state");
   }
   const b64 = typeof req.state === "string" ? (req.state.match(/[A-Za-z0-9+/]{200,}={0,2}/g) || []) : [];
   if (b64.length > 0) {
@@ -365,20 +385,23 @@ export const DEFAULT_THRESHOLDS = Object.freeze({ auto: 0.90, hitl: 0.50 });
 export function decideBand(answer, thresholds = DEFAULT_THRESHOLDS) {
   const auto = thresholds.auto ?? DEFAULT_THRESHOLDS.auto;
   const hitl = thresholds.hitl ?? DEFAULT_THRESHOLDS.hitl;
-  if (answer?.type === "noul" || (answer && "noul" in (answer || {}))) {
-    const p = Number(answer.noul);
-    if (!Number.isFinite(p)) return { band: "abstain", basis: "noul", certainty: null, ambiguous: true };
+  if (![auto, hitl].every((n) => typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 1) || auto < hitl) return { band: "abstain", basis: "invalid_thresholds" };
+  if (answer?.type === "noul" || (answer && typeof answer === "object" && "noul" in answer)) {
+    const p = answer.noul;
+    if (typeof p !== "number" || !Number.isFinite(p) || p < 0 || p > 1) return { band: "abstain", basis: "noul", certainty: null, ambiguous: true };
     const certainty = Math.max(p, 1 - p);
     let band = "abstain";
     if (certainty >= auto) band = "auto";
     else if (certainty >= Math.max(hitl, 0.5)) band = "hitl";
     return { band, basis: "noul_certainty", certainty: round4(certainty), ambiguous: Math.abs(p - 0.5) < 0.1, p_yes: round4(p) };
   }
-  const c = Number(answer?.confidence);
-  if (!Number.isFinite(c)) return { band: "abstain", basis: "missing_confidence", confidence: null };
+  const c = answer?.confidence;
+  if (typeof c !== "number" || !Number.isFinite(c) || c < 0 || c > 1) return { band: "abstain", basis: "missing_or_invalid_confidence", confidence: null };
   let band = "abstain";
   if (c >= auto) band = "auto";
   else if (c >= hitl) band = "hitl";
+  // Uma caixa pode existir até num ecrã vazio; nunca transforma localização em autorização.
+  if (answer?.type === "box" && band === "auto") band = "hitl";
   return { band, basis: "confidence", confidence: round4(c) };
 }
 
@@ -390,7 +413,11 @@ function round4(x) { return Math.round(x * 1e4) / 1e4; }
  */
 export function validateResponse(req, res, thresholds = DEFAULT_THRESHOLDS) {
   const report = new Report();
-  const decisions = {};
+  const decisions = Object.create(null);
+  if (!thresholds || ![thresholds.auto ?? DEFAULT_THRESHOLDS.auto, thresholds.hitl ?? DEFAULT_THRESHOLDS.hitl].every((n) => typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 1) || (thresholds.auto ?? DEFAULT_THRESHOLDS.auto) < (thresholds.hitl ?? DEFAULT_THRESHOLDS.hitl)) {
+    report.err("thresholds.invalid", "Limiares devem satisfazer 0 <= hitl <= auto <= 1.");
+    return { ...report.toJSON(), decisions };
+  }
 
   if (!isPlainObject(res)) {
     report.err("response.type", "Resposta não é um objeto JSON.");
@@ -409,6 +436,10 @@ export function validateResponse(req, res, thresholds = DEFAULT_THRESHOLDS) {
       report.err("answer.missing", `Sem resposta para a pergunta "${qid}".`, where);
       continue;
     }
+    if (!isPlainObject(a)) {
+      report.err("answer.shape", "Cada resposta deve ser objeto tipado não-null.", where);
+      continue;
+    }
     if (a.type !== q.type) {
       report.err("answer.type_mismatch",
         `Tipo da resposta (${a.type}) difere do pedido (${q.type}).`, where);
@@ -416,8 +447,8 @@ export function validateResponse(req, res, thresholds = DEFAULT_THRESHOLDS) {
     }
 
     if (q.type === "noul") {
-      const p = Number(a.noul);
-      if (!Number.isFinite(p) || p < 0 || p > 1) {
+      const p = a.noul;
+      if (typeof p !== "number" || !Number.isFinite(p) || p < 0 || p > 1) {
         report.err("noul.range", `\`noul\` fora de [0,1]: ${a.noul}`, where);
       } else {
         decisions[qid] = { value: p, ...decideBand(a, thresholds) };
@@ -425,6 +456,18 @@ export function validateResponse(req, res, thresholds = DEFAULT_THRESHOLDS) {
           report.note("noul.ambiguous",
             `noul=${p} ≈ indeciso (não é "intensidade média" — é 50/50). Não aja automaticamente.`, where);
         }
+      }
+      continue;
+    }
+
+    if (q.type === "box") {
+      const b = a.box;
+      if (!isPlainObject(b) || !["top", "bottom", "left", "right"].every((k) => typeof b[k] === "number" && Number.isFinite(b[k]) && b[k] >= 0 && b[k] <= 1) || b.left >= b.right || b.top >= b.bottom) {
+        report.err("box.range", "box exige top<bottom, left<right e arestas finitas em [0,1].", where);
+      } else {
+        if (a.confidence == null) report.warn("box.confidence_unknown", "Confiança box ausente/null: desconhecida, nunca autorização implícita.", where);
+        else if (typeof a.confidence !== "number" || !Number.isFinite(a.confidence) || a.confidence < 0 || a.confidence > 1) report.err("box.confidence_range", "Confiança box inválida.", where);
+        decisions[qid] = { value: { ...b }, ...decideBand(a, thresholds), authorization: false, requires_presence_gate: true };
       }
       continue;
     }
@@ -438,12 +481,18 @@ export function validateResponse(req, res, thresholds = DEFAULT_THRESHOLDS) {
       }
       if (typeof a.choice !== "string" || a.choice === "") {
         report.err("choice.missing", "Resposta `choice` sem campo `choice`.", where);
-      } else if (isPlainObject(q.criteria) && !(a.choice in q.criteria)) {
+      } else if (isPlainObject(q.criteria) && !Object.hasOwn(q.criteria, a.choice)) {
         report.err("choice.not_in_criteria",
           `Escolha "${a.choice}" não pertence ao \`criteria\` pedido — nunca deveria acontecer (o Jev não alucina formato); reporte como bug de transporte/parse.`, where);
       }
+      if (probs && typeof a.choice === "string" && Object.hasOwn(probs, a.choice)) {
+        const values = Object.values(probs);
+        if (values.every((v) => typeof v === "number" && Number.isFinite(v)) && probs[a.choice] + 1e-6 < Math.max(...values)) {
+          report.err("choice.argmax", "Escolha não é uma das opções de maior probabilidade.", where);
+        }
+      }
       const c = a.confidence;
-      if (c !== undefined && (typeof c !== "number" || c < 0 || c > 1)) {
+      if (c !== undefined && (typeof c !== "number" || !Number.isFinite(c) || c < 0 || c > 1)) {
         report.err("choice.confidence_range", `\`confidence\` fora de [0,1]: ${c}`, where);
       }
       decisions[qid] = { value: a.choice, ...decideBand(a, thresholds) };
@@ -452,13 +501,13 @@ export function validateResponse(req, res, thresholds = DEFAULT_THRESHOLDS) {
 
     // score
     const levels = Array.isArray(q.criteria) ? q.criteria : [];
-    const s = Number(a.score);
-    if (!Number.isFinite(s)) {
+    const s = a.score;
+    if (typeof s !== "number" || !Number.isFinite(s)) {
       report.err("score.missing", "Resposta `score` sem campo `score` numérico.", where);
     } else {
       const maxLevel = Math.max(0, levels.length - 1);
       if (s < 0 || s > maxLevel) {
-        report.warn("score.out_of_scale",
+        report.err("score.out_of_scale",
           `score=${s} fora da régua [0, ${maxLevel}] definida pelos ${levels.length} níveis.`, where);
       }
       decisions[qid] = { value: s, ...decideBand(a, thresholds) };
@@ -468,7 +517,12 @@ export function validateResponse(req, res, thresholds = DEFAULT_THRESHOLDS) {
     }
     const probs = isPlainObject(a.probabilities) ? a.probabilities : null;
     if (probs) {
-      checkDistribution(report, probs, null, where);
+      checkDistribution(report, probs, levels.map((_, i) => String(i)), where);
+      const entries = Object.entries(probs);
+      if (typeof s === "number" && Number.isFinite(s) && entries.length && entries.every(([k, p]) => /^\d+$/.test(k) && Number(k) < levels.length && typeof p === "number" && Number.isFinite(p))) {
+        const mean = entries.reduce((sum, [k, p]) => sum + Number(k) * p, 0);
+        if (Math.abs(mean - s) > 0.03) report.err("score.weighted_mean", "score não corresponde à média ponderada da distribuição (tolerância0.03 para arredondamento).", where);
+      }
       if (levels.length > 0) {
         for (const k of Object.keys(probs)) {
           const idx = Number(k);
@@ -501,13 +555,13 @@ export function validateResponse(req, res, thresholds = DEFAULT_THRESHOLDS) {
       }
     }
     const c2 = a.confidence;
-    if (c2 !== undefined && (typeof c2 !== "number" || c2 < 0 || c2 > 1)) {
+    if (c2 !== undefined && (typeof c2 !== "number" || !Number.isFinite(c2) || c2 < 0 || c2 > 1)) {
       report.err("score.confidence_range", `\`confidence\` fora de [0,1]: ${c2}`, where);
     }
   }
 
   for (const qid of Object.keys(res.answers)) {
-    if (!(qid in questions)) {
+    if (!Object.hasOwn(questions, qid)) {
       report.note("answer.extra", `Resposta para "${qid}" não pedido (ignorado).`, `answers.${qid}`);
     }
   }
@@ -518,12 +572,22 @@ export function validateResponse(req, res, thresholds = DEFAULT_THRESHOLDS) {
     report.warn("usage.shape", "`usage` sem `input_tokens`/`output_tokens` numéricos.", "usage");
   }
 
+  // Fail-closed: nunca devolver AUTO junto de uma resposta inválida.
+  if (!report.ok) {
+    for (const d of Object.values(decisions)) { d.band = "abstain"; d.reason = "invalid_response"; }
+  } else {
+    for (const [qid, d] of Object.entries(decisions)) {
+      if (report.warnings.some((w) => w.where === `answers.${qid}` && /^(?:probabilities\.|choice.no_probabilities|score.no_probabilities)/.test(w.code))) {
+        d.band = "abstain"; d.reason = "unverified_distribution";
+      }
+    }
+  }
   return { ...report.toJSON(), decisions };
 }
 
 function checkDistribution(report, probs, expectedKeys, where) {
-  const vals = Object.values(probs).map(Number);
-  if (vals.some((v) => !Number.isFinite(v) || v < -1e-9 || v > 1 + 1e-9)) {
+  const vals = Object.values(probs);
+  if (vals.some((v) => typeof v !== "number" || !Number.isFinite(v) || v < -1e-9 || v > 1 + 1e-9)) {
     report.err("probabilities.range", "Probabilidade fora de [0,1] na distribuição.", where);
     return;
   }
@@ -533,7 +597,7 @@ function checkDistribution(report, probs, expectedKeys, where) {
       `Distribuição soma ${sum.toFixed(4)} (esperado ≈ 1). Verifique o parse da resposta.`, where);
   }
   if (expectedKeys && expectedKeys.length > 0) {
-    const missing = expectedKeys.filter((k) => !(k in probs));
+    const missing = expectedKeys.filter((k) => !Object.hasOwn(probs, k));
     if (missing.length > 0) {
       report.warn("probabilities.coverage",
         `Opções do criteria sem probabilidade: ${missing.slice(0, 5).join(", ")}${missing.length > 5 ? "…" : ""}`, where);

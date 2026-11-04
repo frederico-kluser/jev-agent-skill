@@ -1,0 +1,14 @@
+{
+  "model": "cloudflare/clef-omni",
+  "state": "Inspect the synthetic clip from beginning to end. The clip has no soundtrack. Do not infer speech or events not visible in the sampled evidence.",
+  "media": [{ "id": "clip", "type": "video", "path": "../media/clip.mp4" }],
+  "video": { "mode": "native" },
+  "questions": {
+    "starts_red": { "type": "noul", "instructions": "Is the background red at the beginning of clip?" },
+    "final_color": {
+      "type": "choice",
+      "instructions": "What is the background color at the end of clip?",
+      "criteria": { "red": "Red background.", "blue": "Blue background.", "other": "Different color or insufficient evidence." }
+    }
+  }
+}

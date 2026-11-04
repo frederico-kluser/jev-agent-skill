@@ -1,0 +1,21 @@
+# Store newly generated governance text consistently across Windows and CI.
+/.github/** text eol=lf
+/AGENTS.md text eol=lf
+/CLAUDE.md text eol=lf
+/CONTRIBUTING.md text eol=lf
+/SECURITY.md text eol=lf
+/CODE_OF_CONDUCT.md text eol=lf
+/CODEOWNERS text eol=lf
+/CHANGELOG.md text eol=lf
+/README.md text eol=lf
+/cliff.toml text eol=lf
+/release-please-config.json text eol=lf
+/.release-please-manifest.json text eol=lf
+/.gitattributes text eol=lf
+
+# Media fixtures are always byte-for-byte binary artifacts.
+*.png -text
+*.jpg -text
+*.jpeg -text
+*.mp4 -text
+*.webm -text

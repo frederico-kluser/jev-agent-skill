@@ -1,0 +1,14 @@
+{
+  "model": "typesafe/jev-1.14",
+  "state": "Synthetic red-then-blue clip. The supplied samples are chronological; their labels are requested seek times, not exact PTS. No audio evidence is supplied.",
+  "media": [{ "id": "clip", "type": "video", "path": "../media/clip.mp4" }],
+  "video": { "mode": "frames", "fps": 1, "max_frames": 4 },
+  "questions": {
+    "starts_red": { "type": "noul", "instructions": "Is the background red in the first sampled frame of clip?" },
+    "final_color": {
+      "type": "choice",
+      "instructions": "What is the background color in the last sampled frame of clip?",
+      "criteria": { "red": "Red background.", "blue": "Blue background.", "other": "Different color or insufficient evidence." }
+    }
+  }
+}
