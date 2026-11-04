@@ -12,8 +12,8 @@ ele **julga candidatos** que alguém (DOM, OCR ou um parser visual) tem de propo
 
 | Capacidade | Evidência medida |
 |---|---|
-| **Inventariar que tipos de controlo existem** ("há botão? campo? aba?") | recall 0,84–1,00 · precisão 0,65–0,80 (treino) e 0,941 (holdout) |
-| **Dizer em que terça parte há controlos** | F1 0,57–0,97; pplx 0,824 no holdout |
+| **Inventariar que tipos de controlo existem** ("há botão? campo? aba?") | **18/19 tipos** (treino) e **16/17** (holdout); inventa 6 e 1 |
+| **Dizer em que terça parte há controlos** | **17/18 células** (treino) e **7/9** (holdout); inventa 1, esquece 1–2 |
 | "Este controlo está na tela e é interactivo?" | precisão 0,91–0,95 · recall 0,85–0,92 (F1 0,899 holdout) |
 | "Qual destes candidatos corresponde ao pedido?" | `choice` até 255 opções, `confidence` = `(p_top−1/n)/(1−1/n)` |
 | "Que ecrã/fluxo é este?" | 0,958 treino / 0,944 holdout (tarefa tipada de UI) |
@@ -24,9 +24,16 @@ fixas, ouro do DOM): [comparativo-ui-descoberta-2026-11-04.md](comparativo-ui-de
 Os de aceitação vêm do teste de candidatos: [comparativo-ui-elementos-2026-11-04.md](comparativo-ui-elementos-2026-11-04.md).
 
 **O que isso significa na prática:** ele consegue dizer "nesta captura há botões,
-campos e uma aba" sem HTML — com recall alto — mas **inventa 1 a 2 tipos
-fantasma** por tela (precisão 0,75). Inventário serve para orientar; não serve
-para decidir o que *não* existe.
+campos e uma aba" sem HTML — com recall alto — mas **inventa 4 a 9 tipos
+fantasma** nas telas densas (precisão 0,75). Duas falhas sistemáticas, não
+aleatórias:
+
+1. **Fronteira de `bottom-center`** — inventa onde não há e esquece onde há.
+2. **Diálogo centrado** — acerta os tipos e devolve **zero** regiões (o prior
+   espacial colapsa quando tudo está no centro).
+
+Inventário serve para orientar; não serve para decidir o que *não* existe nem
+para localizar. Para "onde", use DOM ou o `box` do Jev.
 
 Números de referência: 0,915–0,919 F1 (treino) e 0,899 (holdout) na tarefa
 "encontra todos os controlos" — a melhor razão custo/qualidade entre 16 modelos,
