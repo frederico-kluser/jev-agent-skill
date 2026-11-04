@@ -16,6 +16,22 @@ O [dossiê](pesquisa-multimodal.md) distingue evidência documental, implementa�
 | `typesafe/jev-1.13` | PNG/JPEG experimentais | Não | Não | Texto64k total/32k por pergunta; imagem262144 |
 | `typesafe/jev-1.14` | PNG/JPEG experimentais | Não | Sim, experimental | Igual ao1.13 nos modos acima |
 | `cloudflare/clef-omni` | PNG/JPEG no runtime; provider também anuncia WebP | MP4/WebM verificados | Não | 65536 total |
+| `perplexity/pplx-decider-v1.2` | PNG/JPEG no runtime; provider anuncia WebP — só no topo do `state` | Não | Não | 262144 total |
+
+### Screenshot/UI: escolha por medição, não por marketing
+
+Comparação paga de2026-11-04 (7 SOMs,28 casos/7 cenas, ouro do DOM, holdout por
+cena, **US$ 0,047** reais,0 erros): o **Perplexity Decider V1.2** teve acurácia
+0,958 no treino (+14,6 p.p. vs Clef) e0,944 no holdout (empate no topo, +16,7 p.p.
+vs Clef), **presença0 FP/0 FN nos dois splits**, e custou ~8,6× menos por1000
+células que o Clef (US$0,031 vs0,265), com p50 mais rápido (571 vs963 ms).
+
+Caveats: n=16/12 casos em7 capturas **sintéticas**; McNemar p≥0,12 (sem
+significância); tarefa de classificação tipada (presença/tipo/quadrante), **não**
+grounding livre, IoU, OCR arbitrário ou clique; entradas JPEGq6 iguais para todos.
+Por isso o preset `--preset ui` é uma **recomendação com revisão**, não uma
+garantia — e o Clef Omni **permanece** como adaptador de vídeo nativo.
+[Resultado completo](comparativo-ui-2026-11-04.md).
 
 O catálogo tem outras famílias de decisões com imagem. `models --input image`
 as lista, mas `implemented_adapter:null` significa que esta versão não implementa

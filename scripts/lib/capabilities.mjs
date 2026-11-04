@@ -2,6 +2,14 @@
 // O catálogo ao vivo prova modalidade + endpoint; não prova limites nem qualidade.
 export const DEFAULT_MODEL = "typesafe/jev-1.14";
 export const NATIVE_VIDEO_MODEL = "cloudflare/clef-omni";
+/**
+ * Screenshots/UI: escolhido por benchmark medido (2026-11-04), não por marketing.
+ * +14,6 p.p. de acurácia vs Clef no treino, empate no topo do holdout, presença
+ * 0 FP/0 FN nos dois splits, ~8,6× mais barato — porém n=16/12 cenas sintéticas e
+ * McNemar p≥0,12 (sem significância): é recomendação com revisão, não garantia.
+ * Ver references/comparativo-ui-2026-11-04.md.
+ */
+export const UI_SCREENSHOT_MODEL = "perplexity/pplx-decider-v1.2";
 export const CATALOG_URL = "https://openrouter.ai/api/v1/models?output_modalities=decisions";
 export const PROFILE_DATE = "2026-11-04";
 const MiB = 1024 * 1024;
@@ -25,6 +33,15 @@ export const MODEL_PROFILES = Object.freeze({
     maxVideos: 2, maxVideoBytes: 16 * MiB, maxAVBytes: 16 * MiB,
     maxVideoSeconds: 60, videoFps: 2, maxQuestions: 64, topLevelMedia: true,
     experimentalImages: false,
+  }),
+  // Screenshot/UI medido em 2026-11-04 (ver references/comparativo-ui-2026-11-04.md).
+  // Limites do adaptador: imagens no TOPO do state, até 8 por pergunta; sem box.
+  "perplexity/pplx-decider-v1.2": Object.freeze({
+    adapter: "perplexity-decider", input: ["text", "image"],
+    primitives: ["noul", "choice", "score"], context: 262_144, questionContext: 262_144,
+    maxBodyBytes: 32 * MiB, maxImageBytes: 16 * MiB, maxImageTotalBytes: 32 * MiB, maxImages: 8,
+    minImageAxis: 280, maxImageAxis: 1568, // conservador: normalização LOCAL idêntica ao Jev
+    topLevelMedia: true, experimentalImages: false,
   }),
 });
 

@@ -12,6 +12,13 @@ projetos existentes. Evolução da antiga `jev-agent-skill`.
 | Jev 1.14 | Sim | Sim, experimental | Frames JPEG extraídos localmente | `noul`, `choice`, `score`, `box` |
 | Jev 1.13 (compatibilidade) | Sim | Sim, experimental | Frames JPEG | `noul`, `choice`, `score` |
 | Cloudflare Clef Omni | Sim | Sim | MP4/WebM nativo, 2fps | `noul`, `choice`, `score` |
+| **Perplexity Decider V1.2** (UI) | Sim | Sim, no topo do `state` | Frames (via preset) | `noul`, `choice`, `score` |
+
+**Screenshot/UI:** medido em 2026-11-04 contra os outros seis SOMs — melhor acurácia
+no treino e no holdout, presença 0 FP/0 FN e ~8,6× mais barato que o Clef, com
+limitações declaradas (7 cenas sintéticas, sem significância estatística). Use
+`--preset ui`; o Clef continua a ser o único com vídeo nativo.
+[Ver resultado](references/comparativo-ui-2026-11-04.md).
 
 O SOM devolve decisões/probabilidades, **não prosa livre**. A skill entrega JSON e
 relatório legível por templates; o agente explica os resultados com incertezas

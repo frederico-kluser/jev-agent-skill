@@ -23,7 +23,7 @@ import {
 
 // client.mjs (node:https + node:http2) e node:readline são carregados SOB DEMANDA:
 // `help` e `validate` não pagam o arranque dos módulos de rede (~5-8 ms medidos).
-import { DEFAULT_MODEL, profileFor, listDecisionModels } from "./lib/capabilities.mjs";
+import { DEFAULT_MODEL, NATIVE_VIDEO_MODEL, UI_SCREENSHOT_MODEL, profileFor, listDecisionModels } from "./lib/capabilities.mjs";
 import { redactMediaOutput } from "./lib/media-info.mjs";
 let clientPromise;
 const clientLib = () => (clientPromise ??= import("./lib/client.mjs"));
@@ -37,7 +37,7 @@ const VERSION = "2.0.0";
 function parseArgs(argv) {
   const args = { _: [], flags: {} };
   const bools = new Set(["json", "strict", "check", "dry-run", "no-preprocess", "skip-model-check", "fail-on-response-errors", "live", "refresh", "help"]);
-  const values = new Set(["model", "state", "state-file", "request-file", "questions-file", "questions", "requests-file", "concurrency", "evals-file", "tolerance", "auto-threshold", "hitl-threshold", "retries", "timeout", "surface", "image", "video", "video-mode", "fps", "max-frames", "start", "end", "media-root", "out", "input"]);
+  const values = new Set(["model", "preset", "state", "state-file", "request-file", "questions-file", "questions", "requests-file", "concurrency", "evals-file", "tolerance", "auto-threshold", "hitl-threshold", "retries", "timeout", "surface", "image", "video", "video-mode", "fps", "max-frames", "start", "end", "media-root", "out", "input"]);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith("--")) { args._.push(a); continue; }
@@ -135,9 +135,30 @@ function enforceVisualReview(validation, responseValidation) {
 // ---------------------------------------------------------------------------
 // analyze — texto + ficheiros de mídia / relatório tipado reutilizável
 // ---------------------------------------------------------------------------
+/**
+ * Presets medidos (não são "melhor universal"): escolhem o adaptador e o modo de
+ * vídeo, e o pedido/flag explícito continua a vencer.
+ */
+const PRESETS = Object.freeze({
+  // Screenshot/UI: benchmark 2026-11-04 (references/comparativo-ui-2026-11-04.md).
+  ui: { model: UI_SCREENSHOT_MODEL },
+  "video-frames": { model: DEFAULT_MODEL, video: { mode: "frames" } },
+  "video-native": { model: NATIVE_VIDEO_MODEL, video: { mode: "native" } },
+});
+
+function applyPreset(spec, flags) {
+  if (flags.preset === undefined) return;
+  const preset = PRESETS[flags.preset];
+  if (!preset) fail(`--preset inválido: ${flags.preset} (aceitos: ${Object.keys(PRESETS).join(", ")}).`, 2);
+  if (!spec.model || flags.preset !== undefined) spec.model = preset.model;
+  if (preset.video && !spec.video) spec.video = { ...preset.video };
+  else if (preset.video && spec.video.mode === undefined) spec.video = { ...preset.video, ...spec.video };
+}
+
 function analysisInput(flags) {
   const spec = flags["request-file"] ? readJsonFile(flags["request-file"]) : {};
   if (!spec || typeof spec !== "object" || Array.isArray(spec)) fail("Pedido de análise deve ser objeto JSON.", 2);
+  applyPreset(spec, flags);
   if (flags.model) spec.model = flags.model;
   else if (!spec.model && (process.env.SOM_MODEL || process.env.JEV_MODEL)) spec.model = process.env.SOM_MODEL || process.env.JEV_MODEL;
   if (flags.state !== undefined) spec.state = flags.state;

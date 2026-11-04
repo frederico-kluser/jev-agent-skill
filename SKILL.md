@@ -53,11 +53,19 @@ português, separando resultado, interpretação e incerteza.
 | Necessidade | Modelo / caminho implementado | O que NÃO prometer |
 |---|---|---|
 | Texto/JSON e decisões discretas | `typesafe/jev-1.14` (padrão); `typesafe/jev-1.13` preservado | Geração de texto, contas/datas exatas ou raciocínio multi-hop |
+| **Screenshot/UI (medido)** | `--preset ui` → `perplexity/pplx-decider-v1.2` | Significância estatística (16/12 cenas), `box`, grounding livre ou OCR arbitrário |
 | Foto/screenshot e localização | Jev 1.14, PNG/JPEG preparados; `noul/choice/score/box` | Visão pronta para produção; `box` como prova de presença |
 | Foto com outro SOM | `cloudflare/clef-omni`, `noul/choice/score` | Suporte a `box` ou mesmos limiares do Jev |
-| Vídeo via Jev | `video.mode=frames`: FFmpeg → frames JPEG com timestamps → Jev | MP4 nativo no Jev, áudio ou observação contínua |
-| Vídeo nativo via SOM | `video.mode=native`, Clef Omni; sem modelo explícito seleciona esse adaptador | Mais de 2 clipes, 60s por clipe ou 16MiB AV agregados; frames contínuos |
+| Vídeo via Jev | `video.mode=frames` (`--preset video-frames`): FFmpeg → frames → Jev | MP4 nativo no Jev, áudio ou observação contínua |
+| Vídeo nativo via SOM | `video.mode=native` (`--preset video-native`), Clef Omni | Mais de 2 clipes, 60s por clipe ou 16MiB AV agregados; frames contínuos |
 | Modelo novo | `models` → conferir `endpoints`, modalidades, docs do adaptador → implementar perfil/testes | Que constar no catálogo basta para compatibilidade ou qualidade |
+
+**Screenshot/UI foi comparado em 2026-11-04** (7 SOMs, 28 casos/7 cenas, ouro do DOM,
+holdout por cena, US$ 0,047 reais): o **Perplexity Decider V1.2** teve +14,6 p.p. de
+acurácia e presença 0 FP/0 FN contra o Clef Omni, ~8,6× mais barato. **Sem significância
+estatística** (McNemar p ≥ 0,12) e só 3 cenas no holdout — é recomendação com revisão,
+não garantia. O **Clef Omni não foi removido**: continua o único com vídeo nativo.
+[Resultado e limitações](references/comparativo-ui-2026-11-04.md).
 
 **Verificação em 2026-11-04:** imagens/`box` do Jev continuam **Dreamer-ready /
 experimentais**. Clef Omni é um modelo de decisões sem geração livre de texto;
@@ -85,9 +93,10 @@ node scripts/som.mjs analyze --request-file examples/requests/video-frames.json 
 node scripts/som.mjs analyze --request-file examples/requests/video-native.json --json
 
 # Em mídia do usuário, o AGENTE prepara perguntas adequadas ao objetivo:
+node scripts/som.mjs analyze --preset ui --image captura.png --questions-file perguntas.json --json
+node scripts/som.mjs analyze --preset video-frames --video clip.mp4 --questions-file perguntas.json --json
+node scripts/som.mjs analyze --preset video-native --video clip.mp4 --questions-file perguntas.json --json
 node scripts/som.mjs analyze --image foto.jpg --questions-file perguntas.json --json
-node scripts/som.mjs analyze --video clip.mp4 --video-mode frames --fps 1 --max-frames 12 --questions-file perguntas.json
-node scripts/som.mjs analyze --video clip.mp4 --video-mode native --questions-file perguntas.json
 
 # Decisões de texto / compatibilidade com o runtime anterior:
 node scripts/som.mjs ask --request-file examples/requests/ticket-triage.json
@@ -100,6 +109,9 @@ node --test
 ```
 
 - `analyze --dry-run`: prepara/valida **sem rede, chave, upload ou inferência**.
+- `--preset ui|video-frames|video-native`: escolhe o adaptador medido para a tarefa
+  (UI → Perplexity Decider; vídeo → Jev-frames ou Clef-native). `--model` explícito
+  vence o preset; o preset vence o `model` do ficheiro de pedido.
 - `--image` e `--video` são repetíveis. Num pedido JSON, paths de mídia são
   relativos ao **diretório do pedido**; paths das flags são relativos ao cwd.
 - `--video-mode frames`: amostra todo o intervalo solicitado, não só seu começo.
