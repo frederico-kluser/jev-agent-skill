@@ -19,3 +19,4 @@
 *.jpeg -text
 *.mp4 -text
 *.webm -text
+references/pesquisa-*.md text eol=lf
