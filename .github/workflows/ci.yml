@@ -31,9 +31,9 @@ jobs:
       - name: Check JavaScript syntax
         shell: bash
         run: |
-          while IFS= read -r -d '' file; do
+          git ls-files -z -- '*.mjs' | while IFS= read -r -d '' file; do
             node --check "$file"
-          done < <(find scripts tests benchmarks -type f -name '*.mjs' -print0)
+          done
       - name: Check patch whitespace
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
