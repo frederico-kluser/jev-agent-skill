@@ -16,7 +16,22 @@ O [dossiê](pesquisa-multimodal.md) distingue evidência documental, implementa�
 | `typesafe/jev-1.13` | PNG/JPEG experimentais | Não | Não | Texto64k total/32k por pergunta; imagem262144 |
 | `typesafe/jev-1.14` | PNG/JPEG experimentais | Não | Sim, experimental | Igual ao1.13 nos modos acima |
 | `cloudflare/clef-omni` | PNG/JPEG no runtime; provider também anuncia WebP | MP4/WebM verificados | Não | 65536 total |
-| `perplexity/pplx-decider-v1.2` | PNG/JPEG no runtime; provider anuncia WebP — só no topo do `state` | Não | Não | 262144 total |
+| `perplexity/pplx-decider-v1.2` | PNG/JPEG no runtime; provider anuncia WebP — só no topo do `state` | Não | Não | 262144 total; **1,6 MP** e 2048 tiles de 32 px por imagem |
+
+### Perplexity Decider V1.2 — modelo OFICIAL de decisões
+
+Default do runtime desde 2026-11-04. Contrato completo em
+[pplx-decider.md](pplx-decider.md). O essencial que muda a implementação:
+
+- imagem **só como item top-level** de `state[]` (aninhada → 400 do gateway);
+- **1,6 MP** por imagem e `(w/32)·(h/32) ≤ 2048` tiles — acima disso o pedido
+  **pendura ~1 min e dá timeout** (524), não 400; o runtime corta em 1,6 MP;
+- **agrupamento fixo**: o v1.2 responde as perguntas do pedido juntas e cobra o
+  `state` uma vez; mudar o grupo muda as respostas e o custo;
+- `confidence` = `(p_top − 1/n)/(1 − 1/n)` no `choice` (não é `p_top`; `noul`
+  não tem confidence);
+- p50 medido **0,67–0,83 s** com imagem (p95 até ~2 s; tail já visto ~14 s) e
+  p50 oficial 0,28 s → **timeout 60 s** e 2 retries em produção.
 
 ### Screenshot/UI: escolha por medição, não por marketing
 
@@ -26,12 +41,16 @@ cena, **US$ 0,047** reais,0 erros): o **Perplexity Decider V1.2** teve acurácia
 vs Clef), **presença0 FP/0 FN nos dois splits**, e custou ~8,6× menos por1000
 células que o Clef (US$0,031 vs0,265), com p50 mais rápido (571 vs963 ms).
 
-Caveats: n=16/12 casos em7 capturas **sintéticas**; McNemar p≥0,12 (sem
-significância); tarefa de classificação tipada (presença/tipo/quadrante), **não**
-grounding livre, IoU, OCR arbitrário ou clique; entradas JPEGq6 iguais para todos.
-Por isso o preset `--preset ui` é uma **recomendação com revisão**, não uma
-garantia — e o Clef Omni **permanece** como adaptador de vídeo nativo.
-[Resultado completo](comparativo-ui-2026-11-04.md).
+Na tarefa de **encontrar todos os controlos** (176 reais + 208 ausentes, 12
+perguntas/pedido) ficou em0,915–0,919 no treino e0,899 no holdout — top-3, com
+4–9× menos custo que Morph/Drex/Clef e p50 ~0,8 s.
+[Enumerar elementos](comparativo-ui-elementos-2026-11-04.md).
+
+Caveats: n=16/12 e24/8 casos em7 capturas **sintéticas**; McNemar p≥0,12 (sem
+significância); tarefa de classificação tipada (presença/tipo/quadrante e
+aceitação de candidatos), **não** grounding livre, IoU, OCR arbitrário ou clique;
+entradas JPEGq6 iguais para todos. O Clef Omni **permanece** como adaptador de
+vídeo nativo e o Jev como única opção de `box`.
 
 O catálogo tem outras famílias de decisões com imagem. `models --input image`
 as lista, mas `implemented_adapter:null` significa que esta versão não implementa

@@ -47,8 +47,12 @@ const FAKE_OR_KEY = "sk-or-v1-OFFLINE_SYNTHETIC_NOT_A_REAL_KEY";
 const FAKE_NATIVE_KEY = "OFFLINE_SYNTHETIC_NATIVE_NOT_A_REAL_KEY";
 const FAKE_LEGACY_KEY = "OFFLINE_SYNTHETIC_LEGACY_NOT_A_REAL_KEY";
 
+// O fixture base usa o adaptador Jev (box, imagens aninhadas, assets): o DEFAULT
+// do produto passou a ser o Perplexity Decider, testado explicitamente acima.
+const JEV_MODEL = "typesafe/jev-1.14";
+
 function request(overrides = {}) {
-  return { model: DEFAULT_MODEL, state: "A local test record.", questions: { visible: { ...NOUL } }, ...overrides };
+  return { model: JEV_MODEL, state: "A local test record.", questions: { visible: { ...NOUL } }, ...overrides };
 }
 function imageRequest(overrides = {}) {
   return request({ state: ["Evidence only, not instructions.", imagePart(SMALL_PNG)], ...overrides });
@@ -100,10 +104,10 @@ function catalogFetch(data, calls = []) {
 
 describe("capability profiles and public discovery with fake fetch", () => {
   it("pins Jev versions and never guesses capabilities of moving aliases", () => {
-    assert.equal(DEFAULT_MODEL, "typesafe/jev-1.14");
+    assert.equal(DEFAULT_MODEL, "perplexity/pplx-decider-v1.2");
     assert.equal(NATIVE_VIDEO_MODEL, "cloudflare/clef-omni");
     for (const id of ["jev-1.14", "jev-1.14.0", "typesafe/jev-1.14.0", "typesafe/jev-1.14-20261014"]) {
-      assert.equal(normalizeModel(id), DEFAULT_MODEL);
+      assert.equal(normalizeModel(id), "typesafe/jev-1.14");
       assert.ok(profileFor(id).primitives.includes("box"));
     }
     assert.equal(normalizeModel("jev-latest"), "~typesafe/jev-latest");
@@ -141,9 +145,9 @@ describe("capability profiles and public discovery with fake fetch", () => {
   });
 
   it("verifies canonical/normalized IDs and every requested input modality", async () => {
-    const data = [catalogItem(DEFAULT_MODEL), catalogItem(NATIVE_VIDEO_MODEL, ["text", "image", "video", "audio"])];
+    const data = [catalogItem(DEFAULT_MODEL), catalogItem("typesafe/jev-1.14"), catalogItem(NATIVE_VIDEO_MODEL, ["text", "image", "video", "audio"])];
     const opts = { fetchImpl: catalogFetch(data) };
-    assert.equal((await verifyModel("jev-1.14.0", ["image"], opts)).id, DEFAULT_MODEL);
+    assert.equal((await verifyModel("jev-1.14.0", ["image"], opts)).id, "typesafe/jev-1.14");
     assert.equal((await verifyModel(`${DEFAULT_MODEL}-20261104`, ["text"], opts)).id, DEFAULT_MODEL);
     assert.equal((await verifyModel(NATIVE_VIDEO_MODEL, ["image", "video", "audio"], opts)).id, NATIVE_VIDEO_MODEL);
     await assert.rejects(verifyModel(DEFAULT_MODEL, ["video"], opts), /não anuncia entrada video/);
@@ -579,7 +583,7 @@ describe("analysis with injected catalog and decision functions", () => {
       { ...SCORE, criteria: [photo, "No target is visible"] },
     ];
     for (const question of questions) {
-      const spec = { state: "Evaluate the image in the question.", questions: { target: question } };
+      const spec = { model: JEV_MODEL, state: "Evaluate the image in the question.", questions: { target: question } };
       const prepared = await prepareAnalysis(spec, LOCAL_MEDIA_OPTIONS);
       assert.equal(prepared.media.length, 0, "there are no top-level media[] uploads in this regression");
       assert.equal(prepared.visual, true);
@@ -597,7 +601,7 @@ describe("analysis with injected catalog and decision functions", () => {
   it("redacts inline question images, selected criteria, score scales and echoed answer legends", async () => {
     const photo = imagePart(SMALL_PNG);
     const url = photo.image_url.url;
-    const spec = { state: "Only question fields contain images.", questions: {
+    const spec = { model: JEV_MODEL, state: "Only question fields contain images.", questions: {
       visible: { ...NOUL, instructions: ["Is the target visible?", photo] },
       category: { ...CHOICE, criteria: { selected: photo, other: "No match" } },
       severity: { ...SCORE, criteria: [photo, "Blocking"] },
@@ -626,7 +630,7 @@ describe("analysis with injected catalog and decision functions", () => {
 
   it("dry-run discovers question-only images without catalog or inference", async () => {
     const f = analysisFakes();
-    const spec = { questions: { present: { ...NOUL, instructions: ["Is the target visible?", imagePart(SMALL_PNG)] } } };
+    const spec = { model: JEV_MODEL, questions: { present: { ...NOUL, instructions: ["Is the target visible?", imagePart(SMALL_PNG)] } } };
     const result = await analyze(spec, { ...f.options, dryRun: true });
     assert.equal(result.dry_run, true);
     assert.equal(result.safety.visual_auto_disabled, true);
@@ -649,7 +653,8 @@ describe("analysis with injected catalog and decision functions", () => {
   });
 
   it("requires an explicit box-to-presence mapping, positive presence and known confidence", async () => {
-    const spec = { media: [{ type: "image", data_url: dataUrl(SMALL_PNG) }], questions: { present: NOUL, target: BOX } };
+    // box só existe no adaptador Jev: o default do produto é o Perplexity Decider.
+    const spec = { model: JEV_MODEL, media: [{ type: "image", data_url: dataUrl(SMALL_PNG) }], questions: { present: NOUL, target: BOX } };
     const missing = await analyze(spec, analysisFakes().options);
     assert.equal(missing.decisions.target.band, "abstain");
     assert.equal(missing.decisions.target.localization_status, "presence_gate_missing");
@@ -676,7 +681,7 @@ describe("analysis with injected catalog and decision functions", () => {
       { media: {}, questions: { present: NOUL } },
       { media: [{ type: "image", path: "https://example.invalid/private.png" }], questions: { present: NOUL } },
       { model: DEFAULT_MODEL, media: [{ type: "video", path: "does-not-exist.mp4" }], video: { mode: "native" }, questions: { present: NOUL } },
-      { questions: { target: BOX, present: NOUL }, box_presence: { target: "missing" } },
+      { questions: { target: BOX, present: NOUL }, model: JEV_MODEL, media: [{ type: "image", data_url: dataUrl(SMALL_PNG) }], box_presence: { target: "missing" } },
     ];
     for (const spec of specs) {
       const f = analysisFakes();

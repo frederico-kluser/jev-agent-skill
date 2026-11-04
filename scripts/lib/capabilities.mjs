@@ -1,15 +1,18 @@
 // Perfis de ADAPTADOR, não um catálogo eterno. Fontes e data em references/multimodal.md.
 // O catálogo ao vivo prova modalidade + endpoint; não prova limites nem qualidade.
-export const DEFAULT_MODEL = "typesafe/jev-1.14";
-export const NATIVE_VIDEO_MODEL = "cloudflare/clef-omni";
 /**
- * Screenshots/UI: escolhido por benchmark medido (2026-11-04), não por marketing.
- * +14,6 p.p. de acurácia vs Clef no treino, empate no topo do holdout, presença
- * 0 FP/0 FN nos dois splits, ~8,6× mais barato — porém n=16/12 cenas sintéticas e
- * McNemar p≥0,12 (sem significância): é recomendação com revisão, não garantia.
- * Ver references/comparativo-ui-2026-11-04.md.
+ * Modelo OFICIAL de decisões (decisão do dono, 2026-11-04): Perplexity Decider
+ * V1.2. Evidência: melhor acurácia no benchmark de UI (0,958 treino / 0,944
+ * holdout), F1 de elementos 0,915/0,899 com a melhor razão custo/qualidade
+ * (~US$ 0,041/1000 pedidos medidos, p50 ~0,8 s). Contrato: ver
+ * references/pplx-decider.md. Não tem `box` — para localização use JEV_BOX_MODEL.
  */
-export const UI_SCREENSHOT_MODEL = "perplexity/pplx-decider-v1.2";
+export const DEFAULT_MODEL = "perplexity/pplx-decider-v1.2";
+/** Único adaptador com `box` (localização) e validação experimental de imagem. */
+export const JEV_BOX_MODEL = "typesafe/jev-1.14";
+export const NATIVE_VIDEO_MODEL = "cloudflare/clef-omni";
+/** Screenshot/UI = mesmo modelo oficial (mantido como nome explícito de preset). */
+export const UI_SCREENSHOT_MODEL = DEFAULT_MODEL;
 export const CATALOG_URL = "https://openrouter.ai/api/v1/models?output_modalities=decisions";
 export const PROFILE_DATE = "2026-11-04";
 const MiB = 1024 * 1024;
@@ -34,13 +37,13 @@ export const MODEL_PROFILES = Object.freeze({
     maxVideoSeconds: 60, videoFps: 2, maxQuestions: 64, topLevelMedia: true,
     experimentalImages: false,
   }),
-  // Screenshot/UI medido em 2026-11-04 (ver references/comparativo-ui-2026-11-04.md).
-  // Limites do adaptador: imagens no TOPO do state, até 8 por pergunta; sem box.
+  // Modelo OFICIAL de decisões (2026-11-04). O model card limita a imagem a
+  // **1,6 MP** — 1920×1080 (2,07 MP) excede; normalizamos por eixo E por pixels.
   "perplexity/pplx-decider-v1.2": Object.freeze({
     adapter: "perplexity-decider", input: ["text", "image"],
     primitives: ["noul", "choice", "score"], context: 262_144, questionContext: 262_144,
     maxBodyBytes: 32 * MiB, maxImageBytes: 16 * MiB, maxImageTotalBytes: 32 * MiB, maxImages: 8,
-    minImageAxis: 280, maxImageAxis: 1568, // conservador: normalização LOCAL idêntica ao Jev
+    minImageAxis: 280, maxImageAxis: 1568, maxImagePixels: 1_600_000,
     topLevelMedia: true, experimentalImages: false,
   }),
 });

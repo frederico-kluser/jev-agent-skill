@@ -697,7 +697,9 @@ async function cmdSelftest() {
   v = validateRequest({ state: "x", questions: { q: { type: "noul", instructions: "É urgente e precisa de reembolso?" } } });
   check("pergunta composta → aviso atomicidade", v.warnings.some((w) => w.code === "atomicity"));
 
-  v = validateRequest({ state: "x".repeat(140_000), questions: { q: { type: "noul", instructions: "ok?" } } });
+  // O default agora é o Perplexity Decider (262k de contexto): o caso usa um
+  // modelo de 64k explícito para o teto continuar a ser o do adaptador Jev.
+  v = validateRequest({ model: "typesafe/jev-1.14", state: "x".repeat(140_000), questions: { q: { type: "noul", instructions: "ok?" } } });
   check("state gigante → erro de orçamento", v.errors.some((e) => e.code === "budget.state" || e.code === "budget.total"));
 
   v = validateRequest({ state: { ticket: "x" }, model: "gpt-99", questions: { q: { type: "noul", instructions: "ok?" } } });

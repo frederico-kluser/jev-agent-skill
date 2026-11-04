@@ -33,15 +33,31 @@ async function run(binary, args, opts = {}) {
   }
 }
 
-export function imageGeometry(width, height, { minAxis = 280, maxAxis = 1568, orientation = 1 } = {}) {
+export function imageGeometry(width, height, { minAxis = 280, maxAxis = 1568, orientation = 1, maxPixels = null } = {}) {
   numeric(minAxis, 280, "minAxis", 1, 1568, true);
   numeric(maxAxis, 1568, "maxAxis", minAxis, 1568, true);
   numeric(orientation, 1, "orientation", 1, 8, true);
+  if (maxPixels !== null) {
+    if (!Number.isInteger(maxPixels) || maxPixels < minAxis * minAxis || maxPixels > MEDIA_LIMITS.maxPixels) {
+      throw new MediaError("maxPixels inválido para o perfil.");
+    }
+  }
   if (![width, height].every((n) => Number.isInteger(n) && n > 0) || width * height > MEDIA_LIMITS.maxPixels) throw new MediaError("Dimensões de imagem inválidas ou acima de 80 MP (teto local).");
   const swapped = [5,6,7,8].includes(orientation);
   const ow = swapped ? height : width, oh = swapped ? width : height;
-  const scale = Math.min(1, maxAxis / Math.max(ow, oh));
-  const cw = Math.max(1, Math.round(ow * scale)), ch = Math.max(1, Math.round(oh * scale));
+  let scale = Math.min(1, maxAxis / Math.max(ow, oh));
+  // Alguns adaptadores limitam ÁREA (Perplexity: 1,6 MP), não só o eixo: um
+  // 1568×1568 (2,46 MP) passaria no eixo e seria rejeitado/truncado no provider.
+  if (maxPixels !== null && ow * oh * scale * scale > maxPixels) scale = Math.min(scale, Math.sqrt(maxPixels / (ow * oh)));
+  const cw0 = Math.max(1, Math.round(ow * scale)), ch0 = Math.max(1, Math.round(oh * scale));
+  // O arredondamento pode estourar o teto por 1-2 px: reduz até caber de facto.
+  let cw = cw0, ch = ch0;
+  if (maxPixels !== null) {
+    while (cw * ch > maxPixels) {
+      if (cw >= ch) cw--; else ch--;
+      if (cw < 1 || ch < 1) throw new MediaError("Não é possível caber a imagem no teto de pixels do perfil.");
+    }
+  }
   const pw = Math.max(minAxis, cw), ph = Math.max(minAxis, ch);
   return { source_width: width, source_height: height, orientation,
     oriented_width: ow, oriented_height: oh, content_width: cw, content_height: ch,
@@ -136,7 +152,7 @@ async function prepareImage(src, profile, opts) {
     info = { width: Number(s?.width), height: Number(s?.height), orientation: 1, mime: "converted", animated: false };
   }
   if (info.animated) throw new MediaError("APNG/animação não é uma fotografia estática. Exporte frames ou use um ficheiro de vídeo.");
-  const geometry = imageGeometry(info.width, info.height, { minAxis: profile.minImageAxis, maxAxis: profile.maxImageAxis, orientation: info.orientation });
+  const geometry = imageGeometry(info.width, info.height, { minAxis: profile.minImageAxis, maxAxis: profile.maxImageAxis, maxPixels: profile.maxImagePixels ?? null, orientation: info.orientation });
   let bytes = src.bytes, metadataStripped = false;
   if (opts.preprocess !== false) {
     bytes = await run(opts.ffmpegPath ?? process.env.FFMPEG_PATH ?? "ffmpeg", ["-v", "error", "-nostdin", "-threads", "1", "-protocol_whitelist", "file,pipe", "-noautorotate", "-i", src.file,
@@ -194,7 +210,7 @@ export async function prepareMedia(items, profile, videoConfig = {}, opts = {}) 
         const remaining = profile.maxImages - images;
         if (remaining < 1) throw new MediaError("Sem espaço para frames adicionais neste adaptador; reduza as mídias ou use pedidos separados.");
         const sampling = planVideoSamples(probe.duration_seconds, videoConfig, remaining, probe.frame_rate ? 1 / probe.frame_rate : 0.5);
-        const g = imageGeometry(probe.oriented_width, probe.oriented_height, { minAxis: profile.minImageAxis, maxAxis: profile.maxImageAxis });
+        const g = imageGeometry(probe.oriented_width, probe.oriented_height, { minAxis: profile.minImageAxis, maxAxis: profile.maxImageAxis, maxPixels: profile.maxImagePixels ?? null });
         const frames = [];
         for (let f = 0; f < sampling.times.length; f++) {
           const seconds = sampling.times[f];

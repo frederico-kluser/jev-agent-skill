@@ -74,6 +74,7 @@ export function validateRequestMedia(req, report) {
         if (info.animated) throw new Error("APNG/animações não são aceitos como imagens estáticas.");
         if (info.orientation !== 1) throw new Error("EXIF de orientação não aplicado fisicamente. Use analyze para pré-processar.");
         if (Math.min(info.width, info.height) < profile.minImageAxis || Math.max(info.width, info.height) > profile.maxImageAxis) throw new Error(`Dimensões exigidas pelo perfil local: ${profile.minImageAxis}..${profile.maxImageAxis}px por eixo; use analyze para resize/padding.`);
+        if (profile.maxImagePixels && info.width * info.height > profile.maxImagePixels) throw new Error(`Imagem com ${info.width * info.height} px excede o teto de ${profile.maxImagePixels} px do adaptador (use analyze para reduzir).`);
         imageBytes += bytes.length;
         expandedBytes += bytes.length * (entry.uses ?? 1);
       } else {

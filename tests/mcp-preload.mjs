@@ -14,7 +14,7 @@ const FAKE_KEY = "sk-or-v1-SOM_OFFLINE_TEST_NOT_A_REAL_CREDENTIAL";
 const mode = process.env.SOM_TEST_NETWORK === "fake" ? "fake" : "deny";
 const responseMode = process.env.SOM_TEST_RESPONSE ?? "valid";
 const audit = { mode, catalog_calls: 0, decision_models: [], blocked: [] };
-const MODELS = ["typesafe/jev-1.13", "typesafe/jev-1.14", "cloudflare/clef-omni"];
+const MODELS = ["typesafe/jev-1.13", "typesafe/jev-1.14", "cloudflare/clef-omni", "perplexity/pplx-decider-v1.2"];
 
 function forbidden(name) {
   audit.blocked.push(name);

@@ -226,11 +226,11 @@ export function validateRequest(req, opts = {}) {
     }
 
     if (media.profile && !media.profile.primitives.includes(q.type)) {
-      report.err("question.model_primitive", `${req.model} não suporta ${q.type}; box exige Jev 1.14.`, where);
+      report.err("question.model_primitive", `${req.model} não suporta ${q.type}. O padrão (Perplexity Decider) não tem box; para localizar use --model typesafe/jev-1.14.`, where);
     }
     if (q.type === "box") {
       if (q.instructions == null) report.err("box.instructions", "instructions de box é obrigatória e não-null na Decisions API.", where);
-      if (!media.profile?.primitives.includes("box")) report.err("box.model", "Fixe typesafe/jev-1.14 para box; não adivinhamos a versão de um alias.", where);
+      if (!media.profile?.primitives.includes("box")) report.err("box.model", "box só existe no adaptador typesafe/jev-1.14 (fixe a versão; não adivinhamos alias).", where);
       if ("criteria" in q) report.err("box.criteria", "box não aceita criteria; descreva o alvo em instructions.", where);
       if (!media.images) report.err("box.image", "box exige uma imagem PNG/JPEG válida no mesmo pedido.", where);
       if (!Object.values(questions).some((candidate) => candidate?.type === "noul")) report.warn("box.presence", "box devolve coordenadas mesmo sem alvo. Inclua um noul de presença independente; localização nunca autoriza uma ação.", where);

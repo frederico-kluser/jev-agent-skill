@@ -13,7 +13,7 @@ export class UploadAnalysisError extends Error {
  * questions e policy são definidos no SERVIDOR, nunca a partir de texto dentro da mídia.
  */
 export function createUploadAnalysisService({ authorizeUpload, resolveUpload, runLimited, mediaRoot,
-  questions, policy, model = "typesafe/jev-1.14", videoMode = "frames", analyzeFn = analyze }) {
+  questions, policy, model = "perplexity/pplx-decider-v1.2", videoMode = "frames", analyzeFn = analyze }) {
   if (![authorizeUpload, resolveUpload, runLimited, analyzeFn].every((f) => typeof f === "function")) throw new TypeError("Ligue authorizeUpload, resolveUpload e runLimited aos serviços existentes.");
   if (!mediaRoot || !questions || typeof questions !== "object" || !policy || typeof policy !== "string") throw new TypeError("mediaRoot, questions e policy do servidor são obrigatórios.");
   return async function analyzeUpload({ actor, uploadId }) {

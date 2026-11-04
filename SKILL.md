@@ -3,14 +3,16 @@ name: som-agent-skill
 description: >-
   Executa e integra System One Models (SOMs) reais via OpenRouter para analisar
   texto, fotos, screenshots e vídeos com decisões tipadas e probabilidades.
-  Jev 1.14 para texto/imagens/box e vídeos por frames; Clef Omni para imagens e
-  vídeo nativo. Descobre modalidades, endpoints e providers, valida mídia e
-  respostas, devolve análise JSON/relatório e integra o runtime no backend já
-  existente, respeitando uploads, autenticação, filas, políticas e testes.
-  Use para SOM/System One, Jev, Clef, classificação, triagem, guardrails,
-  avaliação visual, análise de vídeo e integração dessas capacidades em projetos.
-  Não confunde LLM de chat com SOM, não promete prosa gerada pelo SOM nem
-  transforma probabilidades ou coordenadas em autorização de ações.
+  Modelo oficial de decisões: Perplexity Decider V1.2 (texto e imagem até 1,6 MP,
+  topo do state, sem box). Jev 1.14 para box/localização e vídeos por frames;
+  Clef Omni para vídeo nativo. Descobre modalidades, endpoints e providers,
+  valida mídia, limites e respostas, devolve análise JSON/relatório com latência
+  e custo medidos, e integra o runtime no backend já existente, respeitando
+  uploads, autenticação, filas, políticas e testes.
+  Use para SOM/System One, Perplexity Decider, Jev, Clef, classificação, triagem,
+  guardrails, avaliação visual, análise de vídeo e integração dessas capacidades
+  em projetos. Não confunde LLM de chat com SOM, não promete prosa gerada pelo SOM
+  nem transforma probabilidades ou coordenadas em autorização de ações.
 metadata:
   version: 2.0.0
   type: task
@@ -52,20 +54,24 @@ português, separando resultado, interpretação e incerteza.
 
 | Necessidade | Modelo / caminho implementado | O que NÃO prometer |
 |---|---|---|
-| Texto/JSON e decisões discretas | `typesafe/jev-1.14` (padrão); `typesafe/jev-1.13` preservado | Geração de texto, contas/datas exatas ou raciocínio multi-hop |
-| **Screenshot/UI (medido)** | `--preset ui` → `perplexity/pplx-decider-v1.2` | Significância estatística (16/12 cenas), `box`, grounding livre ou OCR arbitrário |
+| **Decisões (OFICIAL)** | `perplexity/pplx-decider-v1.2` — default do runtime | `box`/localização; ver [contrato e latência](references/pplx-decider.md) |
+| Texto/JSON e decisões discretas | o oficial; `typesafe/jev-1.14` quando precisar de `box` | Geração de texto, contas/datas exatas ou raciocínio multi-hop |
+| **Screenshot/UI (medido)** | `--preset ui` → o modelo oficial | Significância estatística (16/12 e 24/8 casos), `box`, grounding livre ou OCR arbitrário |
 | Foto/screenshot e localização | Jev 1.14, PNG/JPEG preparados; `noul/choice/score/box` | Visão pronta para produção; `box` como prova de presença |
 | Foto com outro SOM | `cloudflare/clef-omni`, `noul/choice/score` | Suporte a `box` ou mesmos limiares do Jev |
 | Vídeo via Jev | `video.mode=frames` (`--preset video-frames`): FFmpeg → frames → Jev | MP4 nativo no Jev, áudio ou observação contínua |
 | Vídeo nativo via SOM | `video.mode=native` (`--preset video-native`), Clef Omni | Mais de 2 clipes, 60s por clipe ou 16MiB AV agregados; frames contínuos |
 | Modelo novo | `models` → conferir `endpoints`, modalidades, docs do adaptador → implementar perfil/testes | Que constar no catálogo basta para compatibilidade ou qualidade |
 
-**Screenshot/UI foi comparado em 2026-11-04** (7 SOMs, 28 casos/7 cenas, ouro do DOM,
-holdout por cena, US$ 0,047 reais): o **Perplexity Decider V1.2** teve +14,6 p.p. de
-acurácia e presença 0 FP/0 FN contra o Clef Omni, ~8,6× mais barato. **Sem significância
-estatística** (McNemar p ≥ 0,12) e só 3 cenas no holdout — é recomendação com revisão,
-não garantia. O **Clef Omni não foi removido**: continua o único com vídeo nativo.
-[Resultado e limitações](references/comparativo-ui-2026-11-04.md).
+**Screenshot/UI e enumeração de elementos foram comparados em 2026-11-04**
+(2 ondas, 16 modelos-candidatos, ouro do DOM, holdout por cena, US$ 0,164 reais
+no total): o **Perplexity Decider V1.2** ficou no topo da primeira tarefa
+(acurácia 0,958/0,944; presença 0 FP/0 FN) e top-3 na enumeração de controlos
+(F1 0,915–0,919 no treino / 0,899 no holdout), com **custo 4–9× menor** e p50
+~0,7–0,8 s. **Sem significância estatística** e só 3–7 cenas — é recomendação
+medida, não garantia. Clef Omni **não foi removido**: continua o único com vídeo
+nativo. [Decisão](references/comparativo-ui-2026-11-04.md) ·
+[encontra todos os controlos?](references/comparativo-ui-elementos-2026-11-04.md).
 
 **Verificação em 2026-11-04:** imagens/`box` do Jev continuam **Dreamer-ready /
 experimentais**. Clef Omni é um modelo de decisões sem geração livre de texto;

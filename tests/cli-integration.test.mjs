@@ -24,7 +24,7 @@ const PHOTO = path.join(MEDIA, "photo.png");
 const CLIP = path.join(MEDIA, "clip.mp4");
 const requestFile = (name) => path.join(ROOT, "examples", "requests", name);
 const FAKE_KEY = "sk-or-v1-SOM_OFFLINE_TEST_NOT_A_REAL_CREDENTIAL";
-const DEFAULT_MODEL = "typesafe/jev-1.14";
+const DEFAULT_MODEL = "perplexity/pplx-decider-v1.2";
 const LEGACY_MODEL = "typesafe/jev-1.13";
 const NATIVE_MODEL = "cloudflare/clef-omni";
 const NOUL = Object.freeze({ type: "noul", instructions: "Is the target visible?" });
@@ -218,7 +218,8 @@ describe("offline CLI entry points and dry-run contracts", () => {
     if (!ffmpegAvailable) return t.skip("FFmpeg absent; no install/network fallback");
     const cwd = await tempFor(t);
     const data = assertDryRun(await cli(["analyze", "--request-file", requestFile("photo-analysis.json"), "--dry-run", "--json"], { cwd }), ["text", "image"]);
-    assert.equal(data.model, DEFAULT_MODEL);
+    // O pedido fixa o modelo de box (Jev 1.14); o default do CLI é o oficial.
+    assert.equal(data.model, "typesafe/jev-1.14");
     assert.equal(data.media.length, 1);
     assert.equal(data.media[0].name, "photo.png");
     assert.equal(data.media[0].metadata_stripped, true);
@@ -238,7 +239,7 @@ describe("offline CLI entry points and dry-run contracts", () => {
   it("prepares the included frames request through the CLI with explicit coverage metadata", async (t) => {
     if (!requireVideoTools(t)) return;
     const data = assertDryRun(await cli(["analyze", "--request-file", requestFile("video-frames.json"), "--dry-run", "--json"]), ["text", "image"]);
-    assert.equal(data.model, DEFAULT_MODEL);
+    assert.equal(data.model, "typesafe/jev-1.14");
     const video = data.media[0];
     assert.equal(video.mode, "frames");
     assert.equal(video.frames.length, 4);
